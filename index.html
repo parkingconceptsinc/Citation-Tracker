@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#10233F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Citations">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<title>PCI Citation Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   PCI Citation Tracker — import iParq / The Permit Store exports,
+   dashboard entirely in the browser (IndexedDB). One ink colour for
+   structure, navy identity, accents that carry intent:
+     blue = totals/action · violet = management · green = collected/ok
+     cyan = live/updated · amber/red = outstanding / attention
+   ============================================================ */
+:root{
+  --ink:#0E163B; --ink-soft:#5B6478; --ink-faint:#98A2B8;
+  --line:#E5E8EF; --bg:#F5F6F9; --surface:#FFFFFF; --surface-2:#F8FAFD;
+  --navy:#10233F; --blue:#2563eb; --violet:#7c3aed; --cyan:#0891b2;
+  --green:#10B981; --amber:#B76B00; --danger:#DC4E41;
+  --radius-lg:18px; --radius-md:12px; --radius-sm:9px;
+  --toast-bg:#0E163B; --tint:rgba(14,22,59,0.06);
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --glow-blue:rgba(37,99,235,.20);
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ink:#EDEFF5; --ink-soft:#A7AFC2; --ink-faint:#6B7488;
+  --line:rgba(255,255,255,0.10); --bg:#10141F; --surface:#2E3A5C; --surface-2:#28324e;
+  --tint:rgba(255,255,255,0.07); --toast-bg:#171F32;
+  --amber:#E0A93D; --danger:#F0685A;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg); color:var(--ink);
+  transition:background-color .2s ease,color .2s ease;
+  padding:calc(env(safe-area-inset-top,0px) + 22px) calc(env(safe-area-inset-right,0px) + 16px)
+          calc(env(safe-area-inset-bottom,0px) + 48px) calc(env(safe-area-inset-left,0px) + 16px);
+}
+:root:not([data-theme="dark"]) body{
+  background:
+    radial-gradient(circle at 88% -6%, rgba(37,99,235,.10), transparent 32%),
+    radial-gradient(circle at 4% 106%, rgba(124,58,237,.07), transparent 40%),
+    var(--bg);
+}
+.shell{width:100%;max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:22px;
+  animation:riseIn .4s var(--ease) both}
+@keyframes riseIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- topbar ---- */
+.topbar{display:flex;align-items:center;gap:12px}
+.topbar > img{height:76px;width:auto;flex-shrink:0;border-radius:var(--radius-md);
+  box-shadow:0 0 0 1px rgba(255,255,255,.5),0 12px 26px rgba(23,55,100,.14);
+  transition:transform .3s var(--ease),box-shadow .3s var(--ease)}
+.topbar > img:hover{transform:rotate(-3deg) scale(1.035)}
+:root[data-theme="dark"] .topbar > img{box-shadow:0 0 0 1px rgba(255,255,255,.14),0 12px 26px rgba(0,0,0,.3)}
+.head-txt{flex:1;min-width:0}
+.head-txt h1{font-family:'Fraunces',serif;font-weight:600;font-size:19px;letter-spacing:-.01em}
+.head-txt p{margin-top:2px;font-size:12.5px;color:var(--ink-soft)}
+.head-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.icon-btn{width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);
+  color:var(--ink-soft);transition:transform .2s var(--ease),box-shadow .2s ease,color .2s ease}
+.icon-btn:hover{transform:translateY(-2px);color:var(--ink)}
+.icon-btn:active{transform:translateY(0) scale(.95)}
+.icon-btn svg{width:18px;height:18px}
+.lang-btn{width:auto;padding:0 12px;font-size:12px;font-weight:700;letter-spacing:.03em;gap:4px}
+.meta{display:none;flex-direction:column;align-items:flex-end;gap:3px;font-size:11.5px;color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;margin-left:2px}
+.meta .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 0 3px rgba(16,185,129,.16);vertical-align:1px;margin-right:5px;
+  animation:pulse 2.6s ease-in-out infinite}
+.meta .dot.off{background:var(--danger);box-shadow:0 0 0 3px rgba(220,78,65,.16);animation:none}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(16,185,129,.16)}50%{box-shadow:0 0 0 7px rgba(16,185,129,.03)}}
+@media (min-width:720px){ .meta{display:flex} }
+
+/* ---- language menu ---- */
+.lang-wrap{position:relative}
+.lang-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:40;min-width:180px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);
+  box-shadow:0 18px 40px rgba(14,22,59,.16);overflow:hidden;display:flex;flex-direction:column}
+.lang-menu[hidden]{display:none}
+.lang-menu button{background:none;border:0;text-align:left;padding:11px 14px;font-size:14px;font-weight:500}
+.lang-menu button:hover,.lang-menu button.on{background:var(--bg)}
+
+/* ---- cards ---- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:0 1px 2px rgba(14,22,59,.04)}
+.pad{padding:20px}
+.card-title{font-family:'Fraunces',serif;font-weight:600;font-size:15px;letter-spacing:.02em;
+  text-transform:uppercase;color:var(--ink-soft);margin-bottom:14px}
+
+/* ---- empty state / dropzone ---- */
+#emptyView{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;
+  padding:46px 24px}
+#emptyView .big-icon{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;
+  background:rgba(37,99,235,.12);color:var(--blue);margin-bottom:10px}
+#emptyView .big-icon svg{width:28px;height:28px}
+#emptyView h2{font-family:'Fraunces',serif;font-size:20px;font-weight:600}
+#emptyView p{color:var(--ink-soft);font-size:13.5px;max-width:440px;line-height:1.5}
+.dropzone{margin-top:16px;width:100%;max-width:460px;border:2px dashed var(--line);border-radius:var(--radius-md);
+  padding:26px 18px;color:var(--ink-soft);font-size:13px;transition:border-color .2s ease,background .2s ease}
+.dropzone.drag{border-color:var(--blue);background:rgba(37,99,235,.06);color:var(--ink)}
+.dropzone strong{color:var(--blue)}
+
+/* ---- buttons ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);
+  padding:10px 15px;font-size:13px;font-weight:700;color:var(--ink);
+  transition:transform .18s var(--ease),box-shadow .18s ease,background .18s ease,border-color .18s ease}
+.btn:hover{transform:translateY(-2px);border-color:rgba(37,99,235,.28)}
+.btn:active{transform:translateY(0) scale(.98)}
+.btn.primary{background:linear-gradient(120deg,#12294a,#1f4d86);color:#fff;border-color:transparent}
+.btn.primary:hover{box-shadow:0 12px 24px var(--glow-blue)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--danger);border-color:rgba(220,78,65,.35)}
+.btn.sm{padding:7px 11px;font-size:12px}
+
+/* ---- KPI grid ---- */
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (min-width:720px){ .kpis{grid-template-columns:repeat(5,minmax(0,1fr))} }
+.kpi{position:relative;overflow:hidden;padding:15px}
+.kpi span{display:block;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft)}
+.kpi strong{display:block;margin-top:9px;font-size:22px;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.kpi small{display:block;margin-top:6px;font-size:11px;color:var(--ink-soft)}
+.kpi::after{content:"";position:absolute;right:-22px;bottom:-26px;width:64px;height:64px;border-radius:50%;background:rgba(37,99,235,.08)}
+.kpi:nth-child(2)::after{background:rgba(16,185,129,.10)}
+.kpi:nth-child(3)::after{background:rgba(183,107,0,.12)}
+.kpi:nth-child(4)::after{background:rgba(124,58,237,.10)}
+.kpi:nth-child(5)::after{background:rgba(8,145,178,.10)}
+.kpi .good{color:var(--green)} .kpi .warn{color:var(--amber)}
+
+/* ---- filters ---- */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:8px 13px;font-size:12px;font-weight:700;color:var(--ink-soft)}
+.seg button.on{background:linear-gradient(120deg,rgba(37,99,235,.16),rgba(37,99,235,.05));color:var(--ink)}
+.filters select,.filters input[type="search"],.filters input[type="date"]{
+  border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);
+  padding:8px 10px;font-size:12.5px;min-width:0}
+.filters input[type="search"]{flex:1;min-width:150px}
+
+/* ---- breakdown bars ---- */
+.grid-2{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:820px){ .grid-2{grid-template-columns:1fr 1fr} }
+.bar-row{display:grid;grid-template-columns:minmax(90px,34%) 1fr auto;gap:10px;align-items:center;
+  padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.bar-row:last-child{border-bottom:0}
+.bar-row .k{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar-track{height:8px;border-radius:999px;background:var(--tint);overflow:hidden}
+.bar-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--blue),#4f8cff)}
+.bar-fill.green{background:linear-gradient(90deg,var(--green),#4fd6a8)}
+.bar-fill.violet{background:linear-gradient(90deg,var(--violet),#a97bff)}
+.bar-fill.amber{background:linear-gradient(90deg,#c98a00,#f2b64d)}
+.bar-row .v{font-variant-numeric:tabular-nums;color:var(--ink-soft);white-space:nowrap}
+
+/* ---- trend ---- */
+.trend{width:100%;height:120px;display:block}
+.trend rect{fill:var(--blue);opacity:.85}
+.trend .axis{stroke:var(--line)}
+.trend-legend{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--ink-faint)}
+
+/* ---- table ---- */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);cursor:pointer;user-select:none}
+th.sort-asc::after{content:" \25B2"} th.sort-desc::after{content:" \25BC"}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr:hover td{background:var(--surface-2)}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.02em}
+.pill.paid{background:rgba(16,185,129,.14);color:var(--green)}
+.pill.pending{background:rgba(183,107,0,.16);color:var(--amber)}
+.pill.void{background:var(--tint);color:var(--ink-faint)}
+.pill.appealed{background:rgba(124,58,237,.14);color:var(--violet)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;font-size:12px;color:var(--ink-soft)}
+
+/* ---- modal ---- */
+.modal{position:fixed;inset:0;z-index:80;display:none;align-items:flex-start;justify-content:center;
+  padding:28px 16px;background:rgba(14,22,59,.55);overflow:auto}
+.modal.open{display:flex}
+.modal-card{width:min(100%,560px);background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-lg);box-shadow:0 30px 72px rgba(14,22,59,.28);
+  animation:riseIn .28s var(--ease) both}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.modal-head h3{font-family:'Fraunces',serif;font-size:17px;font-weight:600}
+.modal-body{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.map-row{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;font-size:12.5px}
+.map-row .src{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-row .arrow{color:var(--ink-faint)}
+[dir="rtl"] .map-row .arrow{display:inline-block;transform:scaleX(-1)}
+.map-row select{width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);padding:8px 9px;font-size:12.5px}
+.map-note{font-size:12px;color:var(--ink-soft);line-height:1.5}
+.map-sample{font-size:11px;color:var(--ink-faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.field label{display:block;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:5px}
+.field input{width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);padding:9px 11px;font-size:13px}
+
+/* ---- toast ---- */
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,80px);z-index:120;
+  background:linear-gradient(110deg,#10233f,#263e63);color:#fff;border:1px solid rgba(255,255,255,.14);
+  padding:11px 18px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap;
+  box-shadow:0 16px 35px rgba(8,21,42,.32);transition:transform .3s var(--ease);pointer-events:none}
+.toast.show{transform:translate(-50%,0)}
+
+.sub-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.spacer{flex:1}
+.hint{color:var(--ink-faint);font-size:11px;font-weight:600}
+[hidden]{display:none!important}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M4 14v5a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-5"/><path d="M12 15V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.2 14.6A8.5 8.5 0 1 1 9.4 3.8a6.6 6.6 0 0 0 10.8 10.8z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></symbol>
+  <symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2 2 2 0 0 0 0 4 2 2 0 0 1-2 2H6a2 2 0 0 1-2-2 2 2 0 0 0 0-4z"/><path d="M12 6v12" stroke-dasharray="2 3"/></symbol>
+</defs></svg>
+
+<div class="shell">
+
+  <header class="topbar">
+    <img src="./assets/logo.png" alt="PCI">
+    <div class="head-txt">
+      <h1 data-i18n="appTitle">Citation Tracker</h1>
+      <p data-i18n="appSub">iParq / The Permit Store exports · on this device</p>
+    </div>
+    <div class="head-actions">
+      <div class="lang-wrap">
+        <button type="button" class="icon-btn lang-btn" id="langBtn" aria-haspopup="true">
+          <svg><use href="#i-globe"></use></svg><span id="langLabel">EN</span>
+        </button>
+        <div class="lang-menu" id="langMenu" hidden>
+          <button type="button" data-lang="en">English</button>
+          <button type="button" data-lang="es">Espa&ntilde;ol</button>
+          <button type="button" data-lang="ar">&#1575;&#1604;&#1593;&#1585;&#1576;&#1610;&#1577;</button>
+          <button type="button" data-lang="ar-eg">&#1605;&#1589;&#1585;&#1610; (Egyptian)</button>
+        </div>
+      </div>
+      <button type="button" class="icon-btn" id="themeBtn" aria-label="Theme"><svg id="themeIcon"><use href="#i-moon"></use></svg></button>
+      <button type="button" class="icon-btn" id="manageBtn" aria-label="Data" title="Data"><svg><use href="#i-cog"></use></svg></button>
+    </div>
+  </header>
+  <div class="meta" style="align-self:flex-end;margin-top:-10px">
+    <span><span class="dot" id="netDot"></span><span id="netText">Online</span></span>
+    <span id="lastImport"></span>
+  </div>
+
+  <!-- EMPTY STATE -->
+  <section class="card" id="emptyView">
+    <div class="big-icon"><svg><use href="#i-ticket"></use></svg></div>
+    <h2 data-i18n="emptyTitle">No citations imported yet</h2>
+    <p data-i18n="emptyBody">In The Permit Store admin, export your citations report as CSV, then drop the file here. Everything stays in this browser.</p>
+    <label class="dropzone" id="dropzone">
+      <span data-i18n="dropHint">Drop a <strong>.csv</strong> file here, or tap to choose</span>
+      <input type="file" id="fileInput" accept=".csv,.tsv,text/csv,text/plain" hidden>
+    </label>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section id="dashView" hidden style="display:flex;flex-direction:column;gap:20px">
+
+    <div class="kpis">
+      <div class="card kpi"><span data-i18n="kpiCount">Citations</span><strong id="kCount">0</strong><small id="kCountSub">&mdash;</small></div>
+      <div class="card kpi"><span data-i18n="kpiCollected">Collected</span><strong id="kCollected" class="good">$0</strong><small id="kRate">&mdash;</small></div>
+      <div class="card kpi"><span data-i18n="kpiOutstanding">Outstanding</span><strong id="kOutstanding" class="warn">$0</strong><small id="kOutSub">&mdash;</small></div>
+      <div class="card kpi"><span data-i18n="kpiBilled">Billed</span><strong id="kBilled">$0</strong><small data-i18n="kpiBilledSub">Total fines</small></div>
+      <div class="card kpi"><span data-i18n="kpiAvg">Avg fine</span><strong id="kAvg">$0</strong><small id="kAvgSub">&mdash;</small></div>
+    </div>
+
+    <div class="card pad">
+      <div class="filters">
+        <div class="seg" id="rangeSeg">
+          <button type="button" data-range="today" data-i18n="rToday">Today</button>
+          <button type="button" data-range="7d" data-i18n="r7">7d</button>
+          <button type="button" data-range="30d" class="on" data-i18n="r30">30d</button>
+          <button type="button" data-range="all" data-i18n="rAll">All</button>
+        </div>
+        <select id="fLot"><option value="" data-i18n="allLots">All lots</option></select>
+        <select id="fOfficer"><option value="" data-i18n="allOfficers">All officers</option></select>
+        <select id="fStatus">
+          <option value="" data-i18n="allStatus">All status</option>
+          <option value="paid" data-i18n="stPaid">Paid</option>
+          <option value="pending" data-i18n="stPending">Pending</option>
+          <option value="appealed" data-i18n="stAppealed">Appealed</option>
+          <option value="void" data-i18n="stVoid">Void</option>
+        </select>
+        <input type="search" id="fSearch" data-i18n-ph="searchPh" placeholder="Search plate / citation / officer">
+        <button type="button" class="btn sm ghost" id="clearFilters" data-i18n="clear">Clear</button>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card pad">
+        <div class="card-title"><span data-i18n="byLot">By lot</span> <span class="hint" data-i18n="barHint">· count · billed</span></div>
+        <div id="byLot"></div>
+      </div>
+      <div class="card pad">
+        <div class="card-title"><span data-i18n="byOfficer">By officer</span> <span class="hint" data-i18n="barHint">· count · billed</span></div>
+        <div id="byOfficer"></div>
+      </div>
+      <div class="card pad">
+        <div class="card-title"><span data-i18n="byStatus">By status</span> <span class="hint" data-i18n="barHintCollected">· count · collected</span></div>
+        <div id="byStatus"></div>
+      </div>
+      <div class="card pad">
+        <div class="card-title" data-i18n="trend">Citations per day</div>
+        <svg class="trend" id="trend" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+        <div class="trend-legend"><span id="trendFrom"></span><span id="trendTo"></span></div>
+      </div>
+    </div>
+
+    <div class="card pad">
+      <div class="sub-actions" style="margin-bottom:12px">
+        <div class="card-title" style="margin:0" data-i18n="records">Records</div>
+        <span class="hint" id="tblCount"></span>
+        <span class="spacer"></span>
+        <button type="button" class="btn sm ghost" id="exportBtn" data-i18n="exportCsv">Export view (CSV)</button>
+        <button type="button" class="btn sm" id="importMoreBtn" data-i18n="importMore">Import more</button>
+      </div>
+      <div class="tbl-wrap">
+        <table id="tbl">
+          <thead><tr>
+            <th data-sort="citationNo" data-i18n="cCit">Citation #</th>
+            <th data-sort="issueDate" class="sort-desc" data-i18n="cDate">Date</th>
+            <th data-sort="lot" data-i18n="cLot">Lot</th>
+            <th data-sort="officer" data-i18n="cOfficer">Officer</th>
+            <th data-sort="plate" data-i18n="cPlate">Plate</th>
+            <th data-sort="violation" data-i18n="cViolation">Violation</th>
+            <th data-sort="amountDue" class="num" data-i18n="cDue">Due</th>
+            <th data-sort="amountPaid" class="num" data-i18n="cPaid">Paid</th>
+            <th data-sort="status" data-i18n="cStatus">Status</th>
+          </tr></thead>
+          <tbody id="tblBody"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button type="button" class="btn sm ghost" id="prevPage" data-i18n="prev">Prev</button>
+        <span id="pageInfo"></span>
+        <button type="button" class="btn sm ghost" id="nextPage" data-i18n="next">Next</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- COLUMN MAPPER -->
+<div class="modal" id="mapModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 data-i18n="mapTitle">Map your columns</h3>
+      <button type="button" class="icon-btn" data-close-map aria-label="Close"><svg><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="map-note" data-i18n="mapNote">Match each field to a column from your export. Only Citation&nbsp;# and Issue date are required. The mapping is saved for next time.</p>
+      <div id="mapRows"></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn ghost" data-close-map data-i18n="cancel">Cancel</button>
+      <button type="button" class="btn primary" id="mapApply" data-i18n="mapApply">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- DATA MANAGEMENT -->
+<div class="modal" id="manageModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 data-i18n="manageTitle">Data</h3>
+      <button type="button" class="icon-btn" data-close-manage aria-label="Close"><svg><use href="#i-x"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="map-note" id="manageStats"></p>
+      <div class="sub-actions">
+        <button type="button" class="btn" id="mImport" data-i18n="importCsv">Import CSV</button>
+        <button type="button" class="btn ghost" id="mRemap" data-i18n="remap">Re-map columns</button>
+        <button type="button" class="btn ghost" id="mExportAll" data-i18n="exportAll">Export all (CSV)</button>
+      </div>
+      <div class="sub-actions">
+        <button type="button" class="btn danger" id="mClear" data-i18n="clearAll">Clear all data</button>
+      </div>
+      <p class="map-note" data-i18n="manageNote">Nothing leaves this browser. Clearing data cannot be undone &mdash; export first if you want a backup.</p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn primary" data-close-manage data-i18n="done">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   PCI Citation Tracker — everything client-side.
+   Storage: IndexedDB (db "pci-citations", store "citations" keyed by id).
+   Column mapping + prefs: localStorage.
+   ========================================================================= */
+
+/* ---------------- i18n ---------------- */
+var I18N = {
+  en:{
+    appTitle:"Citation Tracker", appSub:"iParq / The Permit Store exports · on this device",
+    emptyTitle:"No citations imported yet",
+    emptyBody:"In The Permit Store admin, export your citations report as CSV, then drop the file here. Everything stays in this browser.",
+    dropHint:"Drop a <strong>.csv</strong> file here, or tap to choose",
+    kpiCount:"Citations", kpiCollected:"Collected", kpiOutstanding:"Outstanding", kpiBilled:"Billed",
+    kpiBilledSub:"Total fines", kpiAvg:"Avg fine",
+    rToday:"Today", r7:"7d", r30:"30d", rAll:"All",
+    allLots:"All lots", allOfficers:"All officers", allStatus:"All status",
+    stPaid:"Paid", stPending:"Pending", stAppealed:"Appealed", stVoid:"Void",
+    searchPh:"Search plate / citation / officer", clear:"Clear",
+    byLot:"By lot", byOfficer:"By officer", byStatus:"By status", trend:"Citations per day",
+    barHint:"· count · billed", barHintCollected:"· count · collected", noResults:"No citations match these filters",
+    records:"Records", exportCsv:"Export view (CSV)", importMore:"Import more",
+    cCit:"Citation #", cDate:"Date", cLot:"Lot", cOfficer:"Officer", cPlate:"Plate",
+    cViolation:"Violation", cDue:"Due", cPaid:"Paid", cStatus:"Status",
+    prev:"Prev", next:"Next",
+    mapTitle:"Map your columns",
+    mapNote:"Match each field to a column from your export. Only Citation&nbsp;# and Issue date are required. The mapping is saved for next time.",
+    cancel:"Cancel", mapApply:"Import",
+    manageTitle:"Data", importCsv:"Import CSV", remap:"Re-map columns", exportAll:"Export all (CSV)",
+    clearAll:"Clear all data",
+    manageNote:"Nothing leaves this browser. Clearing data cannot be undone — export first if you want a backup.",
+    done:"Done",
+    fldNone:"— not in export —",
+    fld_citationNo:"Citation / ticket #", fld_issueDate:"Issue date", fld_issueTime:"Issue time",
+    fld_lot:"Lot / facility", fld_officer:"Officer", fld_plate:"License plate", fld_state:"Plate state",
+    fld_make:"Vehicle make / model", fld_violation:"Violation", fld_amountDue:"Amount due / fine",
+    fld_amountPaid:"Amount paid", fld_balance:"Balance", fld_status:"Status",
+    fld_paidDate:"Paid date", fld_appealStatus:"Appeal status", fld_notes:"Notes",
+    online:"Online", offline:"Offline",
+    tImporting:"Reading file…",
+    tImported:"Imported {added} new, updated {updated}",
+    tNeedCols:"Pick a column for Citation # and Issue date",
+    tBadFile:"Could not read that file as CSV",
+    tCleared:"All data cleared", tNoRows:"No rows found in that file",
+    tExported:"Exported {n} rows", tNothing:"Nothing to export",
+    confirmClear:"Delete every imported citation from this browser?",
+    lastImport:"Last import: {when} · {n} citations",
+    ofCount:"{shown} of {total}", page:"Page {p} / {n}",
+    undated:"Undated", blank:"(blank)"
+  },
+  es:{
+    appTitle:"Control de citaciones", appSub:"Exportes de iParq / The Permit Store · en este dispositivo",
+    emptyTitle:"Aún no importaste citaciones",
+    emptyBody:"En el admin de The Permit Store, exportá el reporte de citaciones como CSV y soltá el archivo acá. Todo queda en este navegador.",
+    dropHint:"Soltá un archivo <strong>.csv</strong> acá, o tocá para elegir",
+    kpiCount:"Citaciones", kpiCollected:"Cobrado", kpiOutstanding:"Pendiente", kpiBilled:"Facturado",
+    kpiBilledSub:"Total multas", kpiAvg:"Multa prom.",
+    rToday:"Hoy", r7:"7d", r30:"30d", rAll:"Todo",
+    allLots:"Todos los lotes", allOfficers:"Todos los oficiales", allStatus:"Todos los estados",
+    stPaid:"Pagada", stPending:"Pendiente", stAppealed:"Apelada", stVoid:"Anulada",
+    searchPh:"Buscar placa / citación / oficial", clear:"Limpiar",
+    byLot:"Por lote", byOfficer:"Por oficial", byStatus:"Por estado", trend:"Citaciones por día",
+    barHint:"· cantidad · facturado", barHintCollected:"· cantidad · cobrado", noResults:"Ninguna citación coincide con estos filtros",
+    records:"Registros", exportCsv:"Exportar vista (CSV)", importMore:"Importar más",
+    cCit:"Citación #", cDate:"Fecha", cLot:"Lote", cOfficer:"Oficial", cPlate:"Placa",
+    cViolation:"Violación", cDue:"Debe", cPaid:"Pagó", cStatus:"Estado",
+    prev:"Anterior", next:"Siguiente",
+    mapTitle:"Asigná tus columnas",
+    mapNote:"Asociá cada campo con una columna de tu exporte. Solo Citación&nbsp;# y Fecha son obligatorios. El mapeo se guarda para la próxima.",
+    cancel:"Cancelar", mapApply:"Importar",
+    manageTitle:"Datos", importCsv:"Importar CSV", remap:"Reasignar columnas", exportAll:"Exportar todo (CSV)",
+    clearAll:"Borrar todo",
+    manageNote:"Nada sale de este navegador. Borrar los datos no se puede deshacer — exportá primero si querés respaldo.",
+    done:"Listo",
+    fldNone:"— no está en el exporte —",
+    fld_citationNo:"Citación / ticket #", fld_issueDate:"Fecha de emisión", fld_issueTime:"Hora de emisión",
+    fld_lot:"Lote / instalación", fld_officer:"Oficial", fld_plate:"Placa", fld_state:"Estado de placa",
+    fld_make:"Marca / modelo vehículo", fld_violation:"Violación", fld_amountDue:"Monto / multa",
+    fld_amountPaid:"Monto pagado", fld_balance:"Saldo", fld_status:"Estado",
+    fld_paidDate:"Fecha de pago", fld_appealStatus:"Estado de apelación", fld_notes:"Notas",
+    online:"En línea", offline:"Sin conexión",
+    tImporting:"Leyendo archivo…",
+    tImported:"Importadas {added} nuevas, actualizadas {updated}",
+    tNeedCols:"Elegí una columna para Citación # y Fecha",
+    tBadFile:"No se pudo leer ese archivo como CSV",
+    tCleared:"Datos borrados", tNoRows:"No se encontraron filas en el archivo",
+    tExported:"Exportadas {n} filas", tNothing:"Nada para exportar",
+    confirmClear:"¿Borrar todas las citaciones importadas de este navegador?",
+    lastImport:"Última importación: {when} · {n} citaciones",
+    ofCount:"{shown} de {total}", page:"Página {p} / {n}",
+    undated:"Sin fecha", blank:"(vacío)"
+  },
+  ar:{
+    appTitle:"متابعة المخالفات", appSub:"ملفات iParq / The Permit Store · على هذا الجهاز",
+    emptyTitle:"لم يتم استيراد أي مخالفات بعد",
+    emptyBody:"من لوحة The Permit Store، صدّر تقرير المخالفات بصيغة CSV ثم أفلِت الملف هنا. كل شيء يبقى في هذا المتصفّح.",
+    dropHint:"أفلِت ملف <strong>.csv</strong> هنا، أو انقر للاختيار",
+    kpiCount:"المخالفات", kpiCollected:"المحصّل", kpiOutstanding:"المستحق", kpiBilled:"المفوتر",
+    kpiBilledSub:"إجمالي الغرامات", kpiAvg:"متوسط الغرامة",
+    rToday:"اليوم", r7:"7أ", r30:"30أ", rAll:"الكل",
+    allLots:"كل المواقف", allOfficers:"كل الضبّاط", allStatus:"كل الحالات",
+    stPaid:"مدفوعة", stPending:"معلّقة", stAppealed:"مستأنفة", stVoid:"ملغاة",
+    searchPh:"بحث لوحة / مخالفة / ضابط", clear:"مسح",
+    byLot:"حسب الموقف", byOfficer:"حسب الضابط", byStatus:"حسب الحالة", trend:"المخالفات يومياً",
+    barHint:"· العدد · المفوتر", barHintCollected:"· العدد · المحصّل", noResults:"لا توجد مخالفات مطابقة لهذه الفلاتر",
+    records:"السجلات", exportCsv:"تصدير العرض (CSV)", importMore:"استيراد المزيد",
+    cCit:"رقم المخالفة", cDate:"التاريخ", cLot:"الموقف", cOfficer:"الضابط", cPlate:"اللوحة",
+    cViolation:"المخالفة", cDue:"مستحق", cPaid:"مدفوع", cStatus:"الحالة",
+    prev:"السابق", next:"التالي",
+    mapTitle:"اربط الأعمدة",
+    mapNote:"اربط كل حقل بعمود من ملفك. رقم المخالفة والتاريخ فقط إلزاميان. يُحفظ الربط للمرة القادمة.",
+    cancel:"إلغاء", mapApply:"استيراد",
+    manageTitle:"البيانات", importCsv:"استيراد CSV", remap:"إعادة ربط الأعمدة", exportAll:"تصدير الكل (CSV)",
+    clearAll:"مسح كل البيانات",
+    manageNote:"لا شيء يغادر هذا المتصفّح. لا يمكن التراجع عن المسح — صدّر أولاً للنسخ الاحتياطي.",
+    done:"تم",
+    fldNone:"— غير موجود —",
+    fld_citationNo:"رقم المخالفة", fld_issueDate:"تاريخ الإصدار", fld_issueTime:"وقت الإصدار",
+    fld_lot:"الموقف / المنشأة", fld_officer:"الضابط", fld_plate:"لوحة السيارة", fld_state:"ولاية اللوحة",
+    fld_make:"طراز السيارة", fld_violation:"المخالفة", fld_amountDue:"المبلغ المستحق",
+    fld_amountPaid:"المبلغ المدفوع", fld_balance:"الرصيد", fld_status:"الحالة",
+    fld_paidDate:"تاريخ الدفع", fld_appealStatus:"حالة الاستئناف", fld_notes:"ملاحظات",
+    online:"متصل", offline:"غير متصل",
+    tImporting:"جارٍ قراءة الملف…",
+    tImported:"تم استيراد {added} جديدة، تحديث {updated}",
+    tNeedCols:"اختر عموداً لرقم المخالفة والتاريخ",
+    tBadFile:"تعذّر قراءة الملف كـ CSV",
+    tCleared:"تم مسح البيانات", tNoRows:"لا توجد صفوف في الملف",
+    tExported:"تم تصدير {n} صف", tNothing:"لا شيء للتصدير",
+    confirmClear:"حذف كل المخالفات المستوردة من هذا المتصفّح؟",
+    lastImport:"آخر استيراد: {when} · {n} مخالفة",
+    ofCount:"{shown} من {total}", page:"صفحة {p} / {n}",
+    undated:"بلا تاريخ", blank:"(فارغ)"
+  }
+};
+I18N["ar-eg"] = Object.assign({}, I18N.ar, {
+  appSub:"ملفات iParq / The Permit Store · ع الجهاز ده",
+  emptyTitle:"مفيش مخالفات اتستوردت لسّة",
+  dropHint:"ارمي ملف <strong>.csv</strong> هنا، أو دوس للاختيار",
+  clear:"مسح", done:"تمام",
+  online:"أونلاين", offline:"أوفلاين"
+});
+
+var FIELDS = ["citationNo","issueDate","issueTime","lot","officer","plate","state","make",
+  "violation","amountDue","amountPaid","balance","status","paidDate","appealStatus","notes"];
+var REQUIRED_FIELDS = ["citationNo","issueDate"];
+
+/* auto-match hints: canonical field -> regexes tested against a lowercased header */
+var HINTS = {
+  citationNo:[/citation.*(no|num|#|id)/,/ticket.*(no|num|#)/,/^cite/,/violation.*(no|num|#)/,/^(no|number|id)$/],
+  issueDate:[/issue.*date/,/date.*issue/,/^issued?$/,/violation.*date/,/^date$/,/create.*date/],
+  issueTime:[/issue.*time/,/^time$/],
+  lot:[/facility/,/^lot\b/,/location/,/garage/,/site/,/property/,/zone/],
+  officer:[/officer/,/issued.*by/,/enforcement/,/agent/,/^by$/],
+  plate:[/plate/,/lic(ense)?.*(plate|no)/,/^tag$/,/^lp$/,/vehicle.*plate/],
+  state:[/plate.*state/,/^state$/,/reg.*state/,/province/],
+  make:[/make/,/model/,/vehicle.*(desc|make|type)/,/^vehicle$/],
+  violation:[/violation.*(desc|type|reason|name)/,/^violation$/,/reason/,/offen[cs]e/,/infraction/],
+  amountDue:[/amount.*due/,/fine.*amount/,/^fine$/,/original.*amount/,/^amount$/,/total.*due/,/citation.*amount/,/penalty/],
+  amountPaid:[/amount.*paid/,/^paid$/,/paid.*amount/,/payment.*amount/,/total.*paid/],
+  balance:[/balance/,/amount.*owed/,/outstanding/,/remaining/,/due.*now/],
+  status:[/^status$/,/citation.*status/,/payment.*status/,/state.*status/],
+  paidDate:[/paid.*date/,/date.*paid/,/payment.*date/],
+  appealStatus:[/appeal/,/contest/,/dispute/,/hearing/],
+  notes:[/note/,/comment/,/remark/,/memo/]
+};
+
+/* ---------------- small utils ---------------- */
+var $ = function(id){ return document.getElementById(id); };
+var LS = {
+  get:function(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
+  set:function(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+};
+var lang = LS.get("cit-lang", (navigator.language||"en").slice(0,2)==="es"?"es":"en");
+if(!I18N[lang]) lang = "en";
+function t(key,vars){
+  var s = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+  if(vars) Object.keys(vars).forEach(function(k){ s = s.split("{"+k+"}").join(vars[k]); });
+  return s;
+}
+function fmtMoney(n){
+  n = Number(n)||0;
+  return (n<0?"-$":"$") + Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function fmtMoneyShort(n){
+  n = Number(n)||0; var a = Math.abs(n);
+  if(a>=1000000) return (n<0?"-$":"$")+(a/1000000).toFixed(a>=1e7?0:1)+"M";
+  if(a>=1000) return (n<0?"-$":"$")+(a/1000).toFixed(a>=1e4?0:1)+"k";
+  return (n<0?"-$":"$")+a.toFixed(0);
+}
+function toast(msg){
+  var el = $("toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(function(){ el.classList.remove("show"); }, 2800);
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+
+/* ---------------- CSV parser (RFC4180-ish, dependency-free) ---------------- */
+function parseCSV(text){
+  text = String(text).replace(/^﻿/,"");
+  // sniff delimiter from the first non-empty line
+  var firstLine = (text.split(/\r\n|\n|\r/).find(function(l){return l.trim();}) || "");
+  var delim = ",";
+  var counts = { ",":(firstLine.match(/,/g)||[]).length, "\t":(firstLine.match(/\t/g)||[]).length, ";":(firstLine.match(/;/g)||[]).length };
+  if(counts["\t"]>counts[delim]) delim="\t";
+  if(counts[";"]>counts[delim]) delim=";";
+  var rows=[], row=[], val="", i=0, inQ=false, c, n=text.length;
+  while(i<n){
+    c = text[i];
+    if(inQ){
+      if(c === '"'){
+        if(text[i+1] === '"'){ val+='"'; i+=2; continue; }
+        inQ=false; i++; continue;
+      }
+      val+=c; i++; continue;
+    }
+    if(c === '"'){ inQ=true; i++; continue; }
+    if(c === delim){ row.push(val); val=""; i++; continue; }
+    if(c === '\r'){ i++; continue; }
+    if(c === '\n'){ row.push(val); rows.push(row); row=[]; val=""; i++; continue; }
+    val+=c; i++;
+  }
+  if(val.length || row.length){ row.push(val); rows.push(row); }
+  // drop fully-empty rows
+  rows = rows.filter(function(r){ return r.some(function(x){ return String(x).trim()!==""; }); });
+  if(!rows.length) return { headers:[], rows:[] };
+  var headers = rows[0].map(function(h){ return String(h).trim(); });
+  var out = rows.slice(1).map(function(r){
+    var o = {};
+    headers.forEach(function(h,idx){ o[h] = (r[idx]!=null ? String(r[idx]).trim() : ""); });
+    return o;
+  });
+  return { headers:headers, rows:out };
+}
+function toCSV(objs, cols){
+  var q = function(v){ v = v==null?"":String(v); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  var lines = [cols.map(q).join(",")];
+  objs.forEach(function(o){ lines.push(cols.map(function(c){ return q(o[c]); }).join(",")); });
+  return lines.join("\r\n");
+}
+
+/* ---------------- value normalisers ---------------- */
+function parseNum(v){
+  if(v==null || v==="") return null;
+  var s = String(v).trim();
+  var negative = /^\(.*\)$/.test(s) || /^-/.test(s.replace(/[()$\s,]/g,""));
+  var digits = s.replace(/[()$\s,]/g,"").replace(/[^0-9.\-]/g,"");
+  if(digits==="" || digits==="." || digits==="-") return null;
+  var n = parseFloat(digits);
+  if(!isFinite(n)) return null;
+  n = Math.abs(n);
+  return negative ? -n : n;
+}
+var MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+function parseDate(v){
+  if(!v) return "";
+  var s = String(v).trim();
+  var m;
+  // ISO 2024-03-07 or 2024/03/07 (optionally with time)
+  m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(m) return iso(m[1], m[2], m[3]);
+  // 03/07/2024 or 3-7-24  (assume US M/D/Y — iParq is US)
+  m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+  if(m){
+    var yr = m[3].length===2 ? (Number(m[3])>=70 ? "19"+m[3] : "20"+m[3]) : m[3];
+    return iso(yr, m[1], m[2]);
+  }
+  // 07-Mar-2024 / Mar 7, 2024
+  m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})/);
+  if(m && MONTHS[m[2].toLowerCase()]) return iso(m[3], MONTHS[m[2].toLowerCase()], m[1]);
+  m = s.match(/^([A-Za-z]{3})[A-Za-z]*\s+(\d{1,2}),?\s+(\d{4})/);
+  if(m && MONTHS[m[1].toLowerCase()]) return iso(m[3], MONTHS[m[1].toLowerCase()], m[2]);
+  var d = new Date(s);
+  if(!isNaN(d.getTime())) return iso(d.getFullYear(), d.getMonth()+1, d.getDate());
+  return "";
+}
+function iso(y,mo,da){
+  y = Number(y); mo = Number(mo); da = Number(da);
+  if(!y || mo<1 || mo>12 || da<1 || da>31) return "";
+  return y + "-" + ("0"+mo).slice(-2) + "-" + ("0"+da).slice(-2);
+}
+function normStatus(raw, dueLeft){
+  var s = String(raw||"").toLowerCase();
+  if(/void|dismiss|cancel|waiv|delete/.test(s)) return "void";
+  if(/appeal|contest|disput|hearing|review/.test(s)) return "appealed";
+  if(/paid|closed|collect|settled|complete/.test(s) && !/unpaid|not paid|partial/.test(s)) return "paid";
+  if(/unpaid|open|outstand|pending|due|owe|balance|new|active/.test(s)) return "pending";
+  if(dueLeft!=null) return dueLeft>0.005 ? "pending" : "paid";
+  return "pending";
+}
+
+/* ---------------- IndexedDB ---------------- */
+var DB=null;
+function idb(){
+  return new Promise(function(res,rej){
+    if(DB) return res(DB);
+    var r = indexedDB.open("pci-citations",1);
+    r.onupgradeneeded = function(){ r.result.createObjectStore("citations",{keyPath:"id"}); };
+    r.onsuccess = function(){ DB=r.result; res(DB); };
+    r.onerror = function(){ rej(r.error); };
+  });
+}
+function idbAll(){
+  return idb().then(function(db){ return new Promise(function(res,rej){
+    var out=[], c = db.transaction("citations").objectStore("citations").openCursor();
+    c.onsuccess = function(){ var cur=c.result; if(cur){ out.push(cur.value); cur.continue(); } else res(out); };
+    c.onerror = function(){ rej(c.error); };
+  });});
+}
+function idbBulkPut(recs){
+  return idb().then(function(db){ return new Promise(function(res,rej){
+    var tx = db.transaction("citations","readwrite"), st = tx.objectStore("citations");
+    recs.forEach(function(r){ st.put(r); });
+    tx.oncomplete = function(){ res(); };
+    tx.onerror = function(){ rej(tx.error); };
+  });});
+}
+function idbClear(){
+  return idb().then(function(db){ return new Promise(function(res,rej){
+    var tx = db.transaction("citations","readwrite");
+    tx.objectStore("citations").clear();
+    tx.oncomplete = function(){ res(); };
+    tx.onerror = function(){ rej(tx.error); };
+  });});
+}
+
+/* ---------------- state ---------------- */
+var ALL = [];                 // every record in memory
+var mapping = LS.get("cit-mapping", null);   // {canonicalField: "Source Header"}
+var pendingImport = null;     // {headers, rows} awaiting mapping
+var filters = LS.get("cit-filters", { range:"30d", lot:"", officer:"", status:"", q:"" });
+var sortKey = "issueDate", sortDir = -1;
+var pageNo = 1, PAGE = 25;
+
+/* ---------------- import flow ---------------- */
+function handleFile(file){
+  if(!file) return;
+  // Parsing is synchronous and can take a beat on a big export — say so
+  // immediately, then let that paint before the parse loop runs.
+  var big = file.size > 300*1024;
+  if(big) toast(t("tImporting"));
+  var rd = new FileReader();
+  rd.onload = function(){
+    setTimeout(function(){
+      var parsed;
+      try{ parsed = parseCSV(rd.result); }catch(e){ toast(t("tBadFile")); return; }
+      if(!parsed.headers.length || !parsed.rows.length){ toast(t("tNoRows")); return; }
+      pendingImport = parsed;
+      // if we have a mapping and every mapped source header still exists, import straight away
+      if(mapping && mappingFits(mapping, parsed.headers)){
+        commitImport(buildMapping(mapping, parsed.headers));
+      }else{
+        openMapper(parsed.headers, guessMapping(parsed.headers));
+      }
+    }, big ? 30 : 0);
+  };
+  rd.onerror = function(){ toast(t("tBadFile")); };
+  rd.readAsText(file);
+}
+function mappingFits(map, headers){
+  return REQUIRED_FIELDS.every(function(f){ return map[f] && headers.indexOf(map[f])>=0; });
+}
+function guessMapping(headers){
+  var map = {}, used = {};
+  FIELDS.forEach(function(f){
+    var hints = HINTS[f] || [];
+    for(var h=0; h<headers.length; h++){
+      var low = headers[h].toLowerCase().trim();
+      if(used[headers[h]]) continue;
+      if(hints.some(function(rx){ return rx.test(low); })){ map[f] = headers[h]; used[headers[h]]=1; break; }
+    }
+  });
+  if(mapping) FIELDS.forEach(function(f){ if(mapping[f] && headers.indexOf(mapping[f])>=0 && !map[f]) map[f]=mapping[f]; });
+  return map;
+}
+function openMapper(headers, guess){
+  var box = $("mapRows"); box.innerHTML = "";
+  FIELDS.forEach(function(f){
+    var req = REQUIRED_FIELDS.indexOf(f)>=0;
+    var sample = "";
+    if(guess[f] && pendingImport){
+      for(var i=0;i<pendingImport.rows.length && i<40;i++){ var v=pendingImport.rows[i][guess[f]]; if(v){ sample=v; break; } }
+    }
+    var opts = ['<option value="">'+esc(t("fldNone"))+'</option>'].concat(headers.map(function(h){
+      return '<option value="'+esc(h)+'"'+(guess[f]===h?' selected':'')+'>'+esc(h)+'</option>';
+    })).join("");
+    var row = document.createElement("div");
+    row.className = "map-row";
+    row.innerHTML =
+      '<div><div class="src">'+esc(t("fld_"+f))+(req?' <span style="color:var(--danger)">*</span>':'')+'</div>'+
+        (sample?'<div class="map-sample">'+esc(String(sample).slice(0,40))+'</div>':'')+'</div>'+
+      '<div class="arrow">&rarr;</div>'+
+      '<select data-field="'+f+'">'+opts+'</select>';
+    box.appendChild(row);
+  });
+  $("mapModal").classList.add("open");
+}
+function readMapperSelections(){
+  var map = {};
+  Array.prototype.forEach.call(document.querySelectorAll("#mapRows select"), function(sel){
+    if(sel.value) map[sel.dataset.field] = sel.value;
+  });
+  return map;
+}
+function buildMapping(map, headers){
+  // returns a function(rawRow) -> normalized record, plus keeps the raw map
+  return { map:map, headers:headers };
+}
+function commitImport(built){
+  var map = built.map;
+  if(!mappingFits(map, pendingImport.headers)){ toast(t("tNeedCols")); return; }
+  mapping = map; LS.set("cit-mapping", mapping);
+  var now = Date.now();
+  var incoming = [];
+  pendingImport.rows.forEach(function(raw){
+    var g = function(f){ return map[f] ? (raw[map[f]] || "") : ""; };
+    var id = String(g("citationNo")).trim();
+    if(!id) return;
+    var due = parseNum(g("amountDue"));
+    var paid = parseNum(g("amountPaid"));
+    var bal = parseNum(g("balance"));
+    if(bal==null && due!=null) bal = due - (paid||0);
+    var rec = {
+      id:id,
+      citationNo:id,
+      issueDate:parseDate(g("issueDate")),
+      issueTime:String(g("issueTime")||"").trim(),
+      lot:String(g("lot")||"").trim(),
+      officer:String(g("officer")||"").trim(),
+      plate:String(g("plate")||"").trim().toUpperCase(),
+      state:String(g("state")||"").trim().toUpperCase().slice(0,4),
+      make:String(g("make")||"").trim(),
+      violation:String(g("violation")||"").trim(),
+      amountDue:due, amountPaid:paid, balance:bal,
+      statusRaw:String(g("status")||"").trim(),
+      status:normStatus(g("status"), bal),
+      paidDate:parseDate(g("paidDate")),
+      appealStatus:String(g("appealStatus")||"").trim(),
+      notes:String(g("notes")||"").trim(),
+      _imported:now
+    };
+    incoming.push(rec);
+  });
+  if(!incoming.length){ toast(t("tNoRows")); return; }
+  var existing = {}; ALL.forEach(function(r){ existing[r.id]=true; });
+  var added = incoming.filter(function(r){ return !existing[r.id]; }).length;
+  var updated = incoming.length - added;
+  idbBulkPut(incoming).then(function(){
+    LS.set("cit-lastImport", { when:new Date().toISOString(), n:incoming.length });
+    $("mapModal").classList.remove("open");
+    pendingImport = null;
+    return refresh();
+  }).then(function(){
+    toast(t("tImported",{added:added, updated:updated}));
+  }).catch(function(e){ toast(String(e && e.message || e)); });
+}
+
+/* ---------------- aggregation + render ---------------- */
+function dateFloorISO(daysAgo){
+  var d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-daysAgo);
+  return iso(d.getFullYear(), d.getMonth()+1, d.getDate());
+}
+function todayISO(){ var d=new Date(); return iso(d.getFullYear(), d.getMonth()+1, d.getDate()); }
+function inRange(rec){
+  if(filters.range==="all") return true;
+  if(!rec.issueDate) return false;
+  var from = filters.range==="today" ? todayISO() : filters.range==="7d" ? dateFloorISO(6) : dateFloorISO(29);
+  return rec.issueDate >= from;
+}
+function applyFilters(){
+  var q = filters.q.trim().toLowerCase();
+  return ALL.filter(function(r){
+    if(!inRange(r)) return false;
+    if(filters.lot && r.lot!==filters.lot) return false;
+    if(filters.officer && r.officer!==filters.officer) return false;
+    if(filters.status && r.status!==filters.status) return false;
+    if(q){
+      var hay = (r.citationNo+" "+r.plate+" "+r.officer+" "+r.lot+" "+r.violation).toLowerCase();
+      if(hay.indexOf(q)<0) return false;
+    }
+    return true;
+  });
+}
+function sumField(list, f){ return list.reduce(function(a,r){ return a + (Number(r[f])||0); }, 0); }
+function groupBy(list, key){
+  var m = {};
+  list.forEach(function(r){
+    var k = (r[key]||"").toString().trim() || t("blank");
+    if(!m[k]) m[k] = { key:k, count:0, billed:0, collected:0 };
+    m[k].count++; m[k].billed += Number(r.amountDue)||0; m[k].collected += Number(r.amountPaid)||0;
+  });
+  return Object.keys(m).map(function(k){ return m[k]; }).sort(function(a,b){ return b.count-a.count; });
+}
+function renderBars(elId, groups, cls, moneyKey){
+  var el = $(elId);
+  if(!groups.length){ el.innerHTML = '<div class="hint" style="padding:8px 0">'+esc(t("blank"))+'</div>'; return; }
+  var max = Math.max.apply(null, groups.map(function(g){ return g.count; })) || 1;
+  el.innerHTML = groups.slice(0,8).map(function(g){
+    var pct = Math.round(g.count/max*100);
+    var money = moneyKey ? " · "+fmtMoneyShort(g[moneyKey]) : "";
+    return '<div class="bar-row"><div class="k" title="'+esc(g.key)+'">'+esc(g.key)+'</div>'+
+      '<div class="bar-track"><div class="bar-fill '+cls+'" style="width:'+pct+'%"></div></div>'+
+      '<div class="v">'+g.count+money+'</div></div>';
+  }).join("");
+}
+function renderTrend(list){
+  var days = 30, buckets = [], labels = [];
+  var base = new Date(); base.setHours(0,0,0,0);
+  for(var i=days-1;i>=0;i--){
+    var d = new Date(base); d.setDate(d.getDate()-i);
+    var key = iso(d.getFullYear(), d.getMonth()+1, d.getDate());
+    buckets.push({ key:key, n:0 }); labels.push(key);
+  }
+  var idx = {}; buckets.forEach(function(b,j){ idx[b.key]=j; });
+  list.forEach(function(r){ if(idx[r.issueDate]!=null) buckets[idx[r.issueDate]].n++; });
+  var max = Math.max.apply(null, buckets.map(function(b){ return b.n; })) || 1;
+  var W=600, H=120, bw = W/days;
+  var svg = '<line class="axis" x1="0" y1="'+(H-1)+'" x2="'+W+'" y2="'+(H-1)+'"/>';
+  buckets.forEach(function(b,j){
+    var h = b.n ? Math.max(3, (b.n/max)*(H-14)) : 0;
+    svg += '<rect x="'+(j*bw+1.5)+'" y="'+(H-1-h)+'" width="'+(bw-3)+'" height="'+h+'" rx="1.5"><title>'+b.key+": "+b.n+'</title></rect>';
+  });
+  $("trend").innerHTML = svg;
+  $("trendFrom").textContent = labels[0];
+  $("trendTo").textContent = labels[labels.length-1];
+}
+function refreshFilterOptions(){
+  var lots = {}, offs = {};
+  ALL.forEach(function(r){ if(r.lot) lots[r.lot]=1; if(r.officer) offs[r.officer]=1; });
+  fillSelect($("fLot"), Object.keys(lots).sort(), filters.lot, t("allLots"));
+  fillSelect($("fOfficer"), Object.keys(offs).sort(), filters.officer, t("allOfficers"));
+}
+function fillSelect(sel, values, current, allLabel){
+  sel.innerHTML = '<option value="">'+esc(allLabel)+'</option>' +
+    values.map(function(v){ return '<option value="'+esc(v)+'"'+(v===current?' selected':'')+'>'+esc(v)+'</option>'; }).join("");
+  sel.value = current || "";
+}
+function render(){
+  var list = applyFilters();
+
+  // KPIs
+  var billed = sumField(list,"amountDue");
+  var collected = sumField(list,"amountPaid");
+  var outstanding = list.reduce(function(a,r){ return a + (r.status==="void" ? 0 : Math.max(0, Number(r.balance)||0)); }, 0);
+  var payable = list.filter(function(r){ return r.status!=="void"; });
+  var avg = payable.length ? billed/payable.length : 0;
+  $("kCount").textContent = list.length.toLocaleString();
+  var voidN = list.filter(function(r){ return r.status==="void"; }).length;
+  $("kCountSub").textContent = voidN ? (voidN + " " + t("stVoid").toLowerCase()) : "—";
+  $("kCollected").textContent = fmtMoneyShort(collected);
+  $("kRate").textContent = billed>0 ? Math.round(collected/billed*100)+"% " + t("kpiCollected").toLowerCase() : "—";
+  $("kOutstanding").textContent = fmtMoneyShort(outstanding);
+  var pend = list.filter(function(r){ return r.status==="pending"; }).length;
+  $("kOutSub").textContent = pend + " " + t("stPending").toLowerCase();
+  $("kBilled").textContent = fmtMoneyShort(billed);
+  $("kAvg").textContent = fmtMoneyShort(avg);
+  $("kAvgSub").textContent = payable.length + " " + t("kpiCount").toLowerCase();
+
+  renderBars("byLot", groupBy(list,"lot"), "", "billed");
+  renderBars("byOfficer", groupBy(list,"officer"), "violet", "billed");
+  var st = ["paid","pending","appealed","void"].map(function(s){
+    var g = list.filter(function(r){ return r.status===s; });
+    return { key:t("st"+s.charAt(0).toUpperCase()+s.slice(1)), count:g.length,
+             billed:sumField(g,"amountDue"), collected:sumField(g,"amountPaid") };
+  }).filter(function(g){ return g.count; }).sort(function(a,b){ return b.count-a.count; });
+  renderBars("byStatus", st, "green", "collected");
+  renderTrend(list);
+
+  // table
+  var sorted = list.slice().sort(function(a,b){
+    var x=a[sortKey], y=b[sortKey];
+    if(sortKey==="amountDue"||sortKey==="amountPaid"){ x=Number(x)||0; y=Number(y)||0; }
+    else { x=(x||"").toString().toLowerCase(); y=(y||"").toString().toLowerCase(); }
+    return x<y ? -sortDir : x>y ? sortDir : 0;
+  });
+  var pages = Math.max(1, Math.ceil(sorted.length/PAGE));
+  if(pageNo>pages) pageNo = pages;
+  var slice = sorted.slice((pageNo-1)*PAGE, pageNo*PAGE);
+  $("tblBody").innerHTML = slice.map(function(r){
+    return '<tr>'+
+      '<td>'+esc(r.citationNo)+'</td>'+
+      '<td>'+esc(r.issueDate||t("undated"))+'</td>'+
+      '<td>'+esc(r.lot)+'</td>'+
+      '<td>'+esc(r.officer)+'</td>'+
+      '<td>'+esc(r.plate)+(r.state?' <span class="hint">'+esc(r.state)+'</span>':'')+'</td>'+
+      '<td title="'+esc(r.violation)+'">'+esc(String(r.violation).slice(0,28))+'</td>'+
+      '<td class="num">'+(r.amountDue!=null?fmtMoney(r.amountDue):"")+'</td>'+
+      '<td class="num">'+(r.amountPaid!=null?fmtMoney(r.amountPaid):"")+'</td>'+
+      '<td><span class="pill '+r.status+'">'+esc(r.statusRaw || t("st"+r.status.charAt(0).toUpperCase()+r.status.slice(1)))+'</span></td>'+
+    '</tr>';
+  }).join("") || '<tr><td colspan="9" style="text-align:center;color:var(--ink-faint);padding:22px">'+esc(t("noResults"))+'</td></tr>';
+  $("tblCount").textContent = t("ofCount",{shown:slice.length, total:sorted.length});
+  $("pageInfo").textContent = t("page",{p:pageNo, n:pages});
+  $("prevPage").disabled = pageNo<=1;
+  $("nextPage").disabled = pageNo>=pages;
+
+  Array.prototype.forEach.call(document.querySelectorAll("th[data-sort]"), function(th){
+    th.classList.remove("sort-asc","sort-desc");
+    if(th.dataset.sort===sortKey) th.classList.add(sortDir>0?"sort-asc":"sort-desc");
+  });
+}
+function refresh(){
+  return idbAll().then(function(list){
+    ALL = list;
+    var has = ALL.length>0;
+    $("emptyView").hidden = has;
+    $("dashView").hidden = !has;
+    if(has){ refreshFilterOptions(); render(); }
+    updateManageStats();
+    updateLastImport();
+  });
+}
+function updateLastImport(){
+  var li = LS.get("cit-lastImport", null);
+  $("lastImport").textContent = li ? t("lastImport",{ when:new Date(li.when).toLocaleString(), n:li.n }) : "";
+}
+function updateManageStats(){
+  var li = LS.get("cit-lastImport", null);
+  $("manageStats").textContent =
+    ALL.length.toLocaleString() + " " + t("kpiCount").toLowerCase() +
+    (li ? " · " + t("lastImport",{ when:new Date(li.when).toLocaleDateString(), n:li.n }) : "");
+}
+
+/* ---------------- export ---------------- */
+var EXPORT_COLS = ["citationNo","issueDate","issueTime","lot","officer","plate","state","make",
+  "violation","amountDue","amountPaid","balance","status","statusRaw","paidDate","appealStatus","notes"];
+function download(name, text){
+  var blob = new Blob([text], {type:"text/csv;charset=utf-8"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+function exportRows(list){
+  if(!list.length){ toast(t("tNothing")); return; }
+  download("citations-"+todayISO()+".csv", toCSV(list, EXPORT_COLS));
+  toast(t("tExported",{n:list.length}));
+}
+
+/* ---------------- i18n apply ---------------- */
+function applyLang(){
+  document.documentElement.lang = lang;
+  document.documentElement.dir = /^ar/.test(lang) ? "rtl" : "ltr";
+  $("langLabel").textContent = lang==="ar-eg" ? "EG" : lang.toUpperCase();
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function(el){
+    el.innerHTML = t(el.dataset.i18n);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-ph]"), function(el){
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#langMenu button"), function(b){
+    b.classList.toggle("on", b.dataset.lang===lang);
+  });
+  if(!$("dashView").hidden){ refreshFilterOptions(); render(); }
+  updateManageStats(); updateLastImport();
+}
+
+/* ---------------- events ---------------- */
+function bind(){
+  // theme
+  var savedTheme = LS.get("cit-theme", null);
+  if(savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+  syncThemeIcon();
+  $("themeBtn").addEventListener("click", function(){
+    var dark = document.documentElement.getAttribute("data-theme")==="dark";
+    if(dark) document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme","dark");
+    LS.set("cit-theme", dark ? "light" : "dark");
+    syncThemeIcon();
+  });
+
+  // language menu
+  $("langBtn").addEventListener("click", function(e){ e.stopPropagation(); $("langMenu").hidden = !$("langMenu").hidden; });
+  document.addEventListener("click", function(){ $("langMenu").hidden = true; });
+  Array.prototype.forEach.call(document.querySelectorAll("#langMenu button"), function(b){
+    b.addEventListener("click", function(){ lang = b.dataset.lang; LS.set("cit-lang", lang); $("langMenu").hidden = true; applyLang(); });
+  });
+
+  // file import
+  $("fileInput").addEventListener("change", function(e){ handleFile(e.target.files[0]); e.target.value=""; });
+  var dz = $("dropzone");
+  ["dragenter","dragover"].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.add("drag"); }); });
+  ["dragleave","drop"].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.remove("drag"); }); });
+  dz.addEventListener("drop", function(e){ handleFile(e.dataTransfer.files[0]); });
+  $("importMoreBtn").addEventListener("click", function(){ $("fileInput").click(); });
+  $("mImport").addEventListener("click", function(){ $("fileInput").click(); });
+
+  // mapper
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close-map]"), function(b){
+    b.addEventListener("click", function(){ $("mapModal").classList.remove("open"); pendingImport=null; });
+  });
+  $("mapApply").addEventListener("click", function(){
+    if(!pendingImport) return;
+    commitImport(buildMapping(readMapperSelections(), pendingImport.headers));
+  });
+  $("mRemap").addEventListener("click", function(){
+    $("manageModal").classList.remove("open");
+    if(pendingImport){ openMapper(pendingImport.headers, mapping||{}); }
+    else { toast(t("importCsv")); $("fileInput").click(); }
+  });
+
+  // manage
+  $("manageBtn").addEventListener("click", function(){ updateManageStats(); $("manageModal").classList.add("open"); });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-close-manage]"), function(b){
+    b.addEventListener("click", function(){ $("manageModal").classList.remove("open"); });
+  });
+  $("mExportAll").addEventListener("click", function(){ exportRows(ALL.slice()); });
+  $("mClear").addEventListener("click", function(){
+    if(!confirm(t("confirmClear"))) return;
+    idbClear().then(function(){
+      LS.set("cit-lastImport", null);
+      $("manageModal").classList.remove("open");
+      return refresh();
+    }).then(function(){ toast(t("tCleared")); });
+  });
+
+  // modals — click the backdrop or press Escape to close (map close also
+  // discards the pending import, same as its Cancel button)
+  [$("mapModal"), $("manageModal")].forEach(function(m){
+    m.addEventListener("click", function(e){ if(e.target === m) closeModal(m); });
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key !== "Escape") return;
+    var open = document.querySelector(".modal.open");
+    if(open) closeModal(open);
+  });
+  function closeModal(m){
+    m.classList.remove("open");
+    if(m.id === "mapModal") pendingImport = null;
+  }
+
+  // filters
+  Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(b){
+    b.addEventListener("click", function(){
+      filters.range = b.dataset.range; LS.set("cit-filters", filters); pageNo=1;
+      Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(x){ x.classList.toggle("on", x===b); });
+      render();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(b){ b.classList.toggle("on", b.dataset.range===filters.range); });
+  $("fLot").addEventListener("change", function(){ filters.lot=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
+  $("fOfficer").addEventListener("change", function(){ filters.officer=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
+  $("fStatus").addEventListener("change", function(){ filters.status=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
+  $("fStatus").value = filters.status || "";
+  var st;
+  $("fSearch").addEventListener("input", function(){
+    var v=this.value; clearTimeout(st); st=setTimeout(function(){ filters.q=v; LS.set("cit-filters",filters); pageNo=1; render(); }, 200);
+  });
+  $("fSearch").value = filters.q || "";
+  $("clearFilters").addEventListener("click", function(){
+    filters = { range:"30d", lot:"", officer:"", status:"", q:"" }; LS.set("cit-filters", filters); pageNo=1;
+    $("fSearch").value=""; $("fStatus").value=""; refreshFilterOptions();
+    Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(x){ x.classList.toggle("on", x.dataset.range==="30d"); });
+    render();
+  });
+
+  // table sort + pager + export
+  Array.prototype.forEach.call(document.querySelectorAll("th[data-sort]"), function(th){
+    th.addEventListener("click", function(){
+      if(sortKey===th.dataset.sort) sortDir = -sortDir;
+      else { sortKey = th.dataset.sort; sortDir = (sortKey==="amountDue"||sortKey==="amountPaid"||sortKey==="issueDate") ? -1 : 1; }
+      pageNo=1; render();
+    });
+  });
+  $("prevPage").addEventListener("click", function(){ if(pageNo>1){ pageNo--; render(); } });
+  $("nextPage").addEventListener("click", function(){ pageNo++; render(); });
+  $("exportBtn").addEventListener("click", function(){ exportRows(applyFilters()); });
+
+  // network status
+  function net(){ var on = navigator.onLine; $("netDot").classList.toggle("off", !on); $("netText").textContent = t(on?"online":"offline"); }
+  window.addEventListener("online", net); window.addEventListener("offline", net); net();
+}
+function syncThemeIcon(){
+  var dark = document.documentElement.getAttribute("data-theme")==="dark";
+  $("themeIcon").innerHTML = '<use href="#'+(dark?"i-sun":"i-moon")+'"></use>';
+}
+
+/* ---------------- boot ---------------- */
+bind();
+applyLang();
+refresh();
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", function(){ navigator.serviceWorker.register("./sw.js").catch(function(){}); });
+}
+</script>
+</body>
+</html>
