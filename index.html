@@ -62,17 +62,30 @@ button,input,select{font:inherit;color:inherit}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
-/* ---- topbar ---- */
-.topbar{display:flex;align-items:center;gap:12px}
-.topbar > img{height:76px;width:auto;flex-shrink:0;border-radius:var(--radius-md);
+/* ---- topbar ----
+   Mobile-first: logo + action buttons on row 1, title block wraps to its
+   own full-width row 2 (flex-wrap + head-txt forced to a 100% basis) —
+   a phone-width viewport doesn't have room for a 76px logo + two lines of
+   title/subtitle + 3 buttons all on one line, and forcing it squeezed the
+   title into a single narrow column, one word per line. From 560px up
+   there's room, so it goes back to one row. */
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}
+.topbar > img{height:44px;width:auto;flex-shrink:0;border-radius:var(--radius-md);order:1;
   box-shadow:0 0 0 1px rgba(255,255,255,.5),0 12px 26px rgba(23,55,100,.14);
   transition:transform .3s var(--ease),box-shadow .3s var(--ease)}
 .topbar > img:hover{transform:rotate(-3deg) scale(1.035)}
 :root[data-theme="dark"] .topbar > img{box-shadow:0 0 0 1px rgba(255,255,255,.14),0 12px 26px rgba(0,0,0,.3)}
-.head-txt{flex:1;min-width:0}
-.head-txt h1{font-family:'Fraunces',serif;font-weight:600;font-size:19px;letter-spacing:-.01em}
-.head-txt p{margin-top:2px;font-size:12.5px;color:var(--ink-soft)}
-.head-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.head-txt{flex:1 1 100%;min-width:0;order:3}
+.head-txt h1{font-family:'Fraunces',serif;font-weight:600;font-size:17px;letter-spacing:-.01em}
+.head-txt p{margin-top:2px;font-size:12px;color:var(--ink-soft)}
+.head-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;order:2;margin-left:auto}
+@media (min-width:560px){
+  .topbar > img{height:76px;order:0}
+  .head-txt{flex:1 1 auto;order:0}
+  .head-txt h1{font-size:19px}
+  .head-txt p{font-size:12.5px}
+  .head-actions{order:0;margin-left:0}
+}
 .icon-btn{width:38px;height:38px;display:flex;align-items:center;justify-content:center;
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);
   color:var(--ink-soft);transition:transform .2s var(--ease),box-shadow .2s ease,color .2s ease}
@@ -249,7 +262,7 @@ tr:hover td{background:var(--surface-2)}
       <p data-i18n="appSub">iParq / The Permit Store exports · on this device</p>
     </div>
     <div class="head-actions">
-      <div class="lang-wrap">
+      <div class="lang-wrap" hidden><!-- English-only by request; menu kept in the DOM (harmless) so this is a one-line revert if that changes -->
         <button type="button" class="icon-btn lang-btn" id="langBtn" aria-haspopup="true">
           <svg><use href="#i-globe"></use></svg><span id="langLabel">EN</span>
         </button>
@@ -586,8 +599,12 @@ var LS = {
   get:function(k,d){ try{ var v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } },
   set:function(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
 };
-var lang = LS.get("cit-lang", (navigator.language||"en").slice(0,2)==="es"?"es":"en");
-if(!I18N[lang]) lang = "en";
+// English-only by request — the app used to follow the browser/OS locale
+// (navigator.language), so a phone set to Spanish opened straight into a
+// Spanish UI ("Control de citaciones") nobody asked for. I18N/the language
+// switcher stay in the code (harmless, easy to turn back on) but lang is
+// pinned to "en" regardless of saved preference or device locale.
+var lang = "en";
 function t(key,vars){
   var s = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
   if(vars) Object.keys(vars).forEach(function(k){ s = s.split("{"+k+"}").join(vars[k]); });
