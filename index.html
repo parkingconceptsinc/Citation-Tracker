@@ -573,7 +573,7 @@ var HINTS = {
   violation:[/violation.*(desc|type|reason|name)/,/^violation$/,/reason/,/offen[cs]e/,/infraction/],
   amountDue:[/amount.*due/,/fine.*amount/,/^fine$/,/original.*amount/,/^amount$/,/total.*due/,/citation.*amount/,/penalty/],
   amountPaid:[/amount.*paid/,/^paid$/,/paid.*amount/,/payment.*amount/,/total.*paid/],
-  balance:[/balance/,/amount.*owed/,/outstanding/,/remaining/,/due.*now/],
+  balance:[/balance/,/amount.*owed/,/outstanding/,/remaining/,/due.*now/,/current.*(amount|due|balance)/],
   status:[/^status$/,/citation.*status/,/payment.*status/,/state.*status/],
   paidDate:[/paid.*date/,/date.*paid/,/payment.*date/],
   appealStatus:[/appeal/,/contest/,/dispute/,/hearing/],
@@ -695,7 +695,12 @@ function iso(y,mo,da){
 }
 function normStatus(raw, dueLeft){
   var s = String(raw||"").toLowerCase();
-  if(/void|dismiss|cancel|waiv|delete/.test(s)) return "void";
+  // "Warning" (issued, no fine attached) has no money involved — without this
+  // it falls through to the zero-balance-means-paid guess below and shows up
+  // as a green "paid" pill, which reads as collected revenue that never
+  // existed. Grouped with void (both mean "nothing to collect here"), not a
+  // 5th bucket, so the existing paid/pending/appealed/void UI stays as-is.
+  if(/void|dismiss|cancel|waiv|delete|warn/.test(s)) return "void";
   if(/appeal|contest|disput|hearing|review/.test(s)) return "appealed";
   if(/paid|closed|collect|settled|complete/.test(s) && !/unpaid|not paid|partial/.test(s)) return "paid";
   if(/unpaid|open|outstand|pending|due|owe|balance|new|active/.test(s)) return "pending";
@@ -776,12 +781,24 @@ function mappingFits(map, headers){
 }
 function guessMapping(headers){
   var map = {}, used = {};
+  // Two passes: first skip any header with "fee" in it, then allow it. A
+  // real export often carries both e.g. "Amount Paid" and "Fee Amount Paid"
+  // (the fee-only sub-portion) — both match the same amountPaid hint, and
+  // without this a plain first-match-wins scan could grab the narrower fee
+  // column over the total. Only falls back to a "fee" column when nothing
+  // else on the sheet fits, so a field never goes unmapped because of this.
+  var passes = [
+    function(h){ return !/\bfee\b/i.test(h); },
+    function(){ return true; }
+  ];
   FIELDS.forEach(function(f){
     var hints = HINTS[f] || [];
-    for(var h=0; h<headers.length; h++){
-      var low = headers[h].toLowerCase().trim();
-      if(used[headers[h]]) continue;
-      if(hints.some(function(rx){ return rx.test(low); })){ map[f] = headers[h]; used[headers[h]]=1; break; }
+    for(var pass=0; pass<passes.length && !map[f]; pass++){
+      for(var h=0; h<headers.length; h++){
+        if(used[headers[h]] || !passes[pass](headers[h])) continue;
+        var low = headers[h].toLowerCase().trim();
+        if(hints.some(function(rx){ return rx.test(low); })){ map[f] = headers[h]; used[headers[h]]=1; break; }
+      }
     }
   });
   if(mapping) FIELDS.forEach(function(f){ if(mapping[f] && headers.indexOf(mapping[f])>=0 && !map[f]) map[f]=mapping[f]; });
@@ -1046,9 +1063,30 @@ function download(name, text){
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 1000);
 }
-function exportRows(list){
+// Grouped by location, not by whatever the on-screen table happens to be
+// sorted by — every location's rows land together in the file, in the order
+// they'll need to be split into a per-location template down the road.
+// Ties broken by date then citation # so each location's block is itself
+// chronological.
+function sortForExport(list){
+  return list.slice().sort(function(a,b){
+    var la=(a.lot||"").toLowerCase(), lb=(b.lot||"").toLowerCase();
+    if(la<lb) return -1; if(la>lb) return 1;
+    if(a.issueDate<b.issueDate) return -1; if(a.issueDate>b.issueDate) return 1;
+    return String(a.citationNo).localeCompare(String(b.citationNo));
+  });
+}
+function slug(s){
+  return String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "all-locations";
+}
+// scopeLot: the location name to stamp in the filename, or falsy for "this
+// covers more than one location". Passed explicitly rather than read off
+// the live filter state, so "export all" from the data menu is never
+// mislabeled by whatever lot happens to be selected on the dashboard.
+function exportRows(list, scopeLot){
   if(!list.length){ toast(t("tNothing")); return; }
-  download("citations-"+todayISO()+".csv", toCSV(list, EXPORT_COLS));
+  var scope = scopeLot ? slug(scopeLot) : "all-locations";
+  download("citations-"+scope+"-"+todayISO()+".csv", toCSV(sortForExport(list), EXPORT_COLS));
   toast(t("tExported",{n:list.length}));
 }
 
@@ -1179,7 +1217,7 @@ function bind(){
   });
   $("prevPage").addEventListener("click", function(){ if(pageNo>1){ pageNo--; render(); } });
   $("nextPage").addEventListener("click", function(){ pageNo++; render(); });
-  $("exportBtn").addEventListener("click", function(){ exportRows(applyFilters()); });
+  $("exportBtn").addEventListener("click", function(){ exportRows(applyFilters(), filters.lot); });
 
   // network status
   function net(){ var on = navigator.onLine; $("netDot").classList.toggle("off", !on); $("netText").textContent = t(on?"online":"offline"); }
