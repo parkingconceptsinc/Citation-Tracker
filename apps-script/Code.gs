@@ -1,22 +1,31 @@
 // PCI Citation Tracker — Shared Google Sheets backend (DEV)
-// Deploy as a Google Apps Script Web App: Execute as Me, access allowed for the intended PCI users.
+// Shared Sheet is authoritative. Deploy this file as the DEV Apps Script Web App.
 
 const SPREADSHEET_ID = '1R3VkJ0G40KXsW2IXPMMp-2PV0uR4d--qZs2B6LmUyAw';
 const SHEET_NAME = 'PCI Citation Tracker - Shared Citations DEV';
 const KEY_HEADER = 'Citation Number';
+const ENV = 'DEV';
 
 function doGet(e) {
   try {
     const action = String((e && e.parameter && e.parameter.action) || 'list').toLowerCase();
-    let payload;
     if (action === 'health') {
-      payload = { ok: true, service: 'PCI Citation Tracker', env: 'DEV', timestamp: new Date().toISOString() };
-    } else {
-      payload = { ok: true, records: listCitations_(), timestamp: new Date().toISOString() };
+      const ready = readiness_();
+      return output_({
+        ok: true,
+        service: 'PCI Citation Tracker',
+        env: ENV,
+        sheet: ready.sheet,
+        rows: ready.rows,
+        timestamp: new Date().toISOString()
+      }, e);
     }
-    return output_(payload, e);
+    if (action === 'list') {
+      return output_({ ok: true, records: listCitations_(), env: ENV, timestamp: new Date().toISOString() }, e);
+    }
+    return output_({ ok: false, error: 'Unsupported GET action: ' + action }, e);
   } catch (err) {
-    return output_({ ok: false, error: String(err && err.message || err) }, e);
+    return output_({ ok: false, error: String(err && err.message || err), env: ENV }, e);
   }
 }
 
@@ -26,15 +35,26 @@ function doPost(e) {
     const action = String(body.action || 'upsert').toLowerCase();
     if (action === 'upsert') {
       const result = upsertCitations_(Array.isArray(body.records) ? body.records : []);
-      return output_({ ok: true, added: result.added, updated: result.updated });
+      return output_({ ok: true, added: result.added, updated: result.updated, total: result.total, env: ENV, timestamp: new Date().toISOString() });
     }
     if (action === 'clear') {
-      clearCitations_();
-      return output_({ ok: true, cleared: true });
+      // Whole-sheet deletion is intentionally disabled while this DEV Web App
+      // is reachable without an authenticated gateway.
+      return output_({ ok: false, error: 'Shared clear is disabled in DEV for data protection.', env: ENV });
     }
-    return output_({ ok: false, error: 'Unsupported action' });
+    return output_({ ok: false, error: 'Unsupported POST action: ' + action, env: ENV });
   } catch (err) {
-    return output_({ ok: false, error: String(err && err.message || err) });
+    return output_({ ok: false, error: String(err && err.message || err), env: ENV });
+  }
+}
+
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -49,6 +69,17 @@ function headers_(sh) {
   const lastCol = sh.getLastColumn();
   if (!lastCol) return [];
   return sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map(String);
+}
+
+function readiness_() {
+  return withLock_(function(){
+    const sh = sheet_();
+    const headers = headers_(sh);
+    const idx = index_(headers);
+    if (!headers.length) throw new Error('Sheet has no headers');
+    if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
+    return { sheet: sh.getName(), rows: Math.max(0, sh.getLastRow() - 1) };
+  });
 }
 
 function index_(headers) {
@@ -68,23 +99,34 @@ function splitPlate_(value) {
   return m ? { plate: m[1].trim(), state: m[2] } : { plate: s, state: '' };
 }
 
+function normalizeClock_(value) {
+  const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return '';
+  return String(m[1]).padStart(2, '0') + ':' + m[2] + ':' + (m[3] || '00');
+}
+
 function issueParts_(value) {
   const s = String(value || '').trim();
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2})?))?/);
-  if (m) return { date: m[1], time: m[2] || '' };
+  // Google Sheets can display 07:46:50 as 7:46:50. Accept one- or two-digit
+  // hours and normalize back to HH:mm:ss.
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}(?::\d{2})?))?/);
+  if (m) return { date: m[1], time: normalizeClock_(m[2] || '') };
   const d = new Date(s);
   if (isNaN(d.getTime())) return { date: '', time: '' };
+  const tz = Session.getScriptTimeZone() || 'America/Los_Angeles';
   return {
-    date: Utilities.formatDate(d, Session.getScriptTimeZone() || 'America/Los_Angeles', 'yyyy-MM-dd'),
-    time: Utilities.formatDate(d, Session.getScriptTimeZone() || 'America/Los_Angeles', 'HH:mm:ss')
+    date: Utilities.formatDate(d, tz, 'yyyy-MM-dd'),
+    time: Utilities.formatDate(d, tz, 'HH:mm:ss')
   };
 }
 
 function money_(value) {
   const s = String(value == null ? '' : value).trim();
   if (!s) return null;
-  const n = Number(s.replace(/[$,\s]/g, ''));
-  return isFinite(n) ? n : null;
+  const negative = /^\(.*\)$/.test(s);
+  const n = Number(s.replace(/[()$,\s]/g, ''));
+  if (!isFinite(n)) return null;
+  return negative ? -n : n;
 }
 
 function status_(raw, balance) {
@@ -97,66 +139,77 @@ function status_(raw, balance) {
 }
 
 function listCitations_() {
-  const sh = sheet_();
-  const headers = headers_(sh);
-  if (!headers.length || sh.getLastRow() < 2) return [];
-  const idx = index_(headers);
-  const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
-  return values.map(row => {
-    const citationNo = cell_(row, idx, 'Citation Number');
-    if (!citationNo) return null;
-    const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'));
-    const plateParts = splitPlate_(cell_(row, idx, 'License Plate'));
-    const due = money_(cell_(row, idx, 'Original Amount Due'));
-    const paid = money_(cell_(row, idx, 'Amount Paid'));
-    const balance = money_(cell_(row, idx, 'Current Amount Due'));
-    const statusRaw = cell_(row, idx, 'Status');
-    return {
-      id: citationNo,
-      citationNo: citationNo,
-      violation: htmlDecode_(cell_(row, idx, 'Violation Type')).replace(/^\s*-\s*/, '').trim(),
-      officer: cell_(row, idx, 'Officer Name'),
-      lot: cell_(row, idx, 'Location'),
-      plate: plateParts.plate,
-      state: plateParts.state,
-      issueDate: issued.date,
-      issueTime: issued.time,
-      amountDue: due,
-      amountPaid: paid,
-      balance: balance,
-      statusRaw: statusRaw,
-      status: status_(statusRaw, balance),
-      make: '', paidDate: '', appealStatus: '', notes: '',
-      _shared: true
-    };
-  }).filter(Boolean);
+  return withLock_(function(){
+    const sh = sheet_();
+    const headers = headers_(sh);
+    if (!headers.length || sh.getLastRow() < 2) return [];
+    const idx = index_(headers);
+    if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
+    const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
+    return values.map(row => normalizeRow_(row, idx)).filter(Boolean);
+  });
+}
+
+function normalizeRow_(row, idx) {
+  const citationNo = cell_(row, idx, 'Citation Number');
+  if (!citationNo) return null;
+  const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'));
+  const plateParts = splitPlate_(cell_(row, idx, 'License Plate'));
+  const due = money_(cell_(row, idx, 'Original Amount Due'));
+  const paid = money_(cell_(row, idx, 'Amount Paid'));
+  const balance = money_(cell_(row, idx, 'Current Amount Due'));
+  const statusRaw = cell_(row, idx, 'Status');
+  return {
+    id: citationNo,
+    citationNo: citationNo,
+    violation: htmlDecode_(cell_(row, idx, 'Violation Type')).replace(/^\s*-\s*/, '').trim(),
+    officer: cell_(row, idx, 'Officer Name'),
+    lot: cell_(row, idx, 'Location'),
+    plate: plateParts.plate,
+    state: plateParts.state,
+    issueDate: issued.date,
+    issueTime: issued.time,
+    amountDue: due,
+    amountPaid: paid,
+    balance: balance,
+    statusRaw: statusRaw,
+    status: status_(statusRaw, balance),
+    make: '', paidDate: '', appealStatus: '', notes: '',
+    _shared: true
+  };
 }
 
 function upsertCitations_(records) {
-  if (!records.length) return { added: 0, updated: 0 };
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  if (!records.length) return { added: 0, updated: 0, total: readiness_().rows };
+  return withLock_(function(){
     const sh = sheet_();
     const headers = headers_(sh);
     const idx = index_(headers);
     if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
 
+    const rowCount = Math.max(0, sh.getLastRow() - 1);
+    const rows = rowCount ? sh.getRange(2, 1, rowCount, headers.length).getValues() : [];
     const existing = {};
-    if (sh.getLastRow() >= 2) {
-      const keys = sh.getRange(2, idx[KEY_HEADER] + 1, sh.getLastRow() - 1, 1).getDisplayValues();
-      keys.forEach((r, i) => { const k = String(r[0] || '').trim(); if (k) existing[k] = i + 2; });
-    }
+    rows.forEach((row, i) => {
+      const key = String(row[idx[KEY_HEADER]] == null ? '' : row[idx[KEY_HEADER]]).trim();
+      if (key && existing[key] == null) existing[key] = i;
+    });
 
-    let added = 0, updated = 0;
+    let added = 0;
+    let updated = 0;
     records.forEach(rec => {
       const key = String(rec.citationNo || rec.id || '').trim();
       if (!key) return;
-      const rowNumber = existing[key] || (sh.getLastRow() + 1);
-      const row = rowNumber <= sh.getLastRow()
-        ? sh.getRange(rowNumber, 1, 1, headers.length).getValues()[0]
-        : new Array(headers.length).fill('');
-
+      let pos = existing[key];
+      if (pos == null) {
+        pos = rows.length;
+        existing[key] = pos;
+        rows.push(new Array(headers.length).fill(''));
+        added++;
+      } else {
+        updated++;
+      }
+      const row = rows[pos];
       set_(row, idx, 'Violation Type', rec.violation || '');
       set_(row, idx, 'Officer Name', rec.officer || '');
       set_(row, idx, 'Location', rec.lot || '');
@@ -167,19 +220,14 @@ function upsertCitations_(records) {
       if (rec.amountDue != null) set_(row, idx, 'Original Amount Due', rec.amountDue);
       if (rec.amountPaid != null) set_(row, idx, 'Amount Paid', rec.amountPaid);
       if (rec.balance != null) set_(row, idx, 'Current Amount Due', rec.balance);
-
-      sh.getRange(rowNumber, 1, 1, headers.length).setValues([row]);
-      if (existing[key]) updated++; else { added++; existing[key] = rowNumber; }
     });
-    return { added, updated };
-  } finally {
-    lock.releaseLock();
-  }
-}
 
-function clearCitations_() {
-  const sh = sheet_();
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).clearContent();
+    if (rows.length) {
+      sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
+      SpreadsheetApp.flush();
+    }
+    return { added: added, updated: updated, total: rows.length };
+  });
 }
 
 function set_(row, idx, header, value) {
@@ -193,8 +241,13 @@ function joinPlate_(plate, state) {
 }
 
 function joinIssued_(date, time) {
-  const d = String(date || '').trim();
-  const t = String(time || '').trim();
+  const rawDate = String(date || '').trim();
+  const d = (rawDate.match(/\d{4}-\d{2}-\d{2}/) || [rawDate])[0];
+  let t = normalizeClock_(time);
+  if (!t) {
+    const m = rawDate.match(/[ T](\d{1,2}:\d{2}(?::\d{2})?)/);
+    if (m) t = normalizeClock_(m[1]);
+  }
   return [d, t].filter(Boolean).join(' ');
 }
 
