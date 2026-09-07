@@ -1,8 +1,8 @@
 {
-  "name": "PCI Citation Tracker",
-  "short_name": "Citations",
-  "description": "Import iParq / The Permit Store citation exports and review them on this device",
-  "id": "./pci-citation-tracker",
+  "name": "PCI Citation Tracker DEV",
+  "short_name": "Citations DEV",
+  "description": "PCI shared citation dashboard backed by the DEV Google Sheet",
+  "id": "./pci-citation-tracker-dev",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
