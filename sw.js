@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v5-dev-dashboard-refresh";
+const CACHE_NAME = CACHE_PREFIX + "v6-force-shared-sync";
 
 const APP_SHELL = [
   "./",
@@ -24,6 +24,16 @@ self.addEventListener("activate", event => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then(clients => Promise.all(clients.map(client => {
+        try {
+          const u = new URL(client.url);
+          if (u.origin !== self.location.origin || !u.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
+          if (u.searchParams.get("_pciShared") === "v6") return;
+          u.searchParams.set("_pciShared", "v6");
+          return client.navigate(u.href).catch(() => {});
+        } catch (_) {}
+      })))
   );
 });
 
@@ -53,7 +63,7 @@ self.addEventListener("fetch", event => {
   const isNavigation = request.mode === "navigate" || /\/(?:index\.html)?$/.test(url.pathname);
   if (isNavigation) {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: "no-store" })
         .catch(() => caches.match("./index.html"))
         .then(response => injectSharedSync(response))
     );
@@ -62,7 +72,7 @@ self.addEventListener("fetch", event => {
 
   event.respondWith(
     caches.match(request).then(cached => {
-      const network = fetch(request).then(response => {
+      const network = fetch(request, { cache: "no-store" }).then(response => {
         if (!response || !response.ok) return response;
         const copy = response.clone();
         return caches.open(CACHE_NAME)
