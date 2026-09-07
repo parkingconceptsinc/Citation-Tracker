@@ -1,10 +1,11 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v7-authoritative-shared-boot";
+const CACHE_NAME = CACHE_PREFIX + "v8-shared-ui-guard";
 
 const APP_SHELL = [
   "./",
   "./index.html",
   "./shared-sync.js",
+  "./shared-ui.js",
   "./manifest.json",
   "./assets/logo.png",
   "./icons/icon-192.png",
@@ -32,8 +33,8 @@ self.addEventListener("activate", event => {
           const u = new URL(client.url);
           const scopePath = new URL(self.registration.scope).pathname;
           if (u.origin !== self.location.origin || !u.pathname.startsWith(scopePath)) return;
-          if (u.searchParams.get("_pciShared") === "v7") return;
-          u.searchParams.set("_pciShared", "v7");
+          if (u.searchParams.get("_pciShared") === "v8") return;
+          u.searchParams.set("_pciShared", "v8");
           return client.navigate(u.href).catch(() => {});
         } catch (_) {}
       })))
@@ -43,15 +44,18 @@ self.addEventListener("activate", event => {
 function injectSharedBoot(response) {
   if (!response) return response;
   return response.text().then(html => {
-    // The legacy index boots with refresh() against IndexedDB. For controlled
-    // navigations, suppress that first local refresh and let shared-sync.js do
-    // the only initial refresh. This removes the local-vs-shared race.
     if (!/shared-sync\.js/.test(html)) {
+      // The legacy index boots with refresh() against IndexedDB. Suppress that
+      // initial local read on controlled navigations so shared-sync owns the
+      // only boot refresh.
       html = html.replace(
         /bind\(\);\s*applyLang\(\);\s*refresh\(\);/,
         'bind();\napplyLang();\nwindow.__PCI_SHARED_BOOT_PENDING__ = true;'
       );
-      html = html.replace(/<\/body>/i, '<script src="./shared-sync.js"></script>\n</body>');
+      html = html.replace(
+        /<\/body>/i,
+        '<script src="./shared-sync.js"></script>\n<script src="./shared-ui.js"></script>\n</body>'
+      );
     }
     const headers = new Headers(response.headers);
     headers.set("content-type", "text/html; charset=utf-8");
@@ -80,12 +84,12 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // shared-sync.js is critical application logic: prefer the network copy,
-  // fall back to the current cache only when offline.
-  if (/\/shared-sync\.js$/.test(url.pathname)) {
+  // Critical shared runtime files are network-first and fall back to the
+  // current versioned cache only when offline.
+  if (/\/(?:shared-sync|shared-ui)\.js$/.test(url.pathname)) {
     event.respondWith(
       fetch(request, { cache: "no-store" }).then(response => {
-        if (!response || !response.ok) throw new Error("shared-sync fetch failed");
+        if (!response || !response.ok) throw new Error("shared runtime fetch failed");
         const copy = response.clone();
         event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => {}));
         return response;
