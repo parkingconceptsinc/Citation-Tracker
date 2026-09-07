@@ -5,7 +5,7 @@
 (function(){
   'use strict';
 
-  var API_URL = 'https://script.google.com/macros/s/AKfycbxYPk_6fS7mM_jIHQEtTJjWUEhQF4ZZ4XwHMtLfjv7mLuFyrYGan_RSveLFDnymAVY/exec';
+  var API_URL = 'https://script.google.com/macros/s/AKfycbzWtAKS2m7Wye8glheRN70FnUhbKgTHbhip9bFSv3rmwuA1MUQ1acb5NX65vVRNg0AF/exec';
   var localAll = window.idbAll;
   var localPut = window.idbBulkPut;
   var localClear = window.idbClear;
