@@ -8,18 +8,21 @@
   var DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxYPk_6fS7mM_jIHQEtTJjWUEhQF4ZZ4XwHMtLfjv7mLuFyrYGan_RSveLFDnymAVY/exec';
   var API_URL = DEFAULT_API_URL;
 
-  // Optional one-time bootstrap: open the app with ?citationApi=<encoded /exec URL>.
-  // The URL is saved locally so DEV can be tested without another code commit.
+  // DEV now has one authoritative API endpoint. Do not reuse a URL that may
+  // have been saved by an older Management/Supervisor session; that could
+  // make the same Citation Tracker read two different backends.
   try {
+    localStorage.removeItem('pci-citation-api-url');
     var p = new URLSearchParams(location.search);
     var supplied = p.get('citationApi');
     if (supplied && /^https:\/\/script\.google\.com\/macros\/s\//i.test(supplied)) {
-      localStorage.setItem('pci-citation-api-url', supplied);
       API_URL = supplied;
     } else {
-      API_URL = localStorage.getItem('pci-citation-api-url') || DEFAULT_API_URL;
+      API_URL = DEFAULT_API_URL;
     }
-  } catch (_) {}
+  } catch (_) {
+    API_URL = DEFAULT_API_URL;
+  }
 
   var localAll = window.idbAll;
   var localPut = window.idbBulkPut;
@@ -53,7 +56,6 @@
 
   function post(payload){
     if (!configured()) return Promise.reject(new Error('Shared Citation API is not configured'));
-    // text/plain is a CORS-simple request. Apps Script receives it in e.postData.contents.
     return fetch(API_URL, {
       method: 'POST',
       mode: 'no-cors',
@@ -68,7 +70,7 @@
     return localClear().then(function(){ return records.length ? localPut(records) : undefined; }).catch(function(){});
   }
 
-  // Shared Sheet is authoritative. IndexedDB becomes offline cache only.
+  // Shared Sheet is authoritative. IndexedDB is offline cache only.
   window.idbAll = function(){
     if (!configured()) return localAll();
     return jsonp({ action:'list' }).then(function(data){
@@ -122,10 +124,6 @@
     var headRow = table.querySelector('thead tr');
     if (headRow) {
       var heads = Array.prototype.slice.call(headRow.children);
-
-      // First pass starts with the original 9-column dashboard. Move the six
-      // requested headers into their exact order, then remove the rest while
-      // preserving the original click/sort listeners attached by index.html.
       if (heads.length === 9) {
         COLUMN_ORDER.forEach(function(i, n){
           if (!heads[i]) return;
@@ -147,14 +145,11 @@
 
     var rows = table.querySelectorAll('tbody tr');
     Array.prototype.forEach.call(rows, function(tr){
-      // Normal rendered record row from index.html.
       if (tr.children.length === 9) {
         var cells = Array.prototype.slice.call(tr.children);
         COLUMN_ORDER.forEach(function(i){ if (cells[i]) tr.appendChild(cells[i]); });
         cells.forEach(function(td, i){ if (COLUMN_ORDER.indexOf(i) < 0) td.remove(); });
       }
-
-      // Original empty-state row spans nine columns; dashboard now has six.
       if (tr.children.length === 1 && tr.children[0].hasAttribute('colspan')) {
         tr.children[0].setAttribute('colspan', '6');
       }
@@ -240,7 +235,5 @@
   showMode();
   applyColumnOrder();
 
-  // The original boot already performed one local refresh before this file loaded.
-  // Run it again now through the shared backend, or through the offline cache if not configured.
   runSharedRefresh().catch(function(err){ console.error(err); });
 })();
