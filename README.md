@@ -1,77 +1,60 @@
-# PCI Citation Tracker
+# PCI Citation Tracker — DEV
 
-A **100% client-side** PWA that turns a citation export from **iParq / The Permit
-Store** (`admin.thepermitstore.com`) into a dashboard: totals, collected vs
-outstanding, by lot, by officer, by status, a 30-day trend and a searchable
-table. It also re-exports the current view as CSV.
+Citation Tracker is a PCI Web App for importing **iParq / The Permit Store** citation exports and reviewing shared citation activity.
 
-**Nothing leaves the browser.** Imported citations are stored in **IndexedDB**
-on the device; the column mapping and preferences are in `localStorage`. There is
-no backend, no Google Sheet, no account.
+## Current DEV architecture
 
----
+`CSV import / Citation Tracker → Apps Script Web App → Google Sheet`
 
-## Using it
+- **Authoritative datastore:** `PCI Citation Tracker - Shared Citations DEV`
+- **Apps Script environment:** DEV
+- **Unique key:** Citation Number
+- **Offline behavior:** IndexedDB is a read-only fallback cache when the shared API cannot be reached.
+- **Management and Supervisor:** both launch the same GitHub Pages Citation Tracker and therefore must read the same shared dataset.
+- **DEV active deployment:** GitHub Pages from this repository's `main` branch. This does **not** mean PCI Reports PROD; PROD remains a separate construction path in the broader PCI Apps workflow.
 
-1. In **The Permit Store admin**, run your citations report and **export as CSV**
-   (Excel/XLSX: use *Save As → CSV* first).
-2. Open the app, **drop the CSV** on the box (or tap to choose).
-3. **First import only** — the column mapper opens. Match each field to a column
-   from your file. Only **Citation #** and **Issue date** are required. It tries
-   to auto-match by header name; fix anything it got wrong and press **Import**.
-   The mapping is saved and re-used automatically on the next import (as long as
-   the same headers are present — otherwise the mapper reopens).
-4. Re-import whenever you have a fresh export. Rows are merged (upserted) by
-   **Citation #**, so paid/appealed status updates in place and nothing
-   duplicates.
+## Dashboard record order
 
-**Data menu** (gear icon): import, re-map columns, export **all** data as CSV,
-or clear everything (irreversible — export first).
+The user-facing citation table is intentionally limited to:
 
-### Canonical fields
+1. Violation Type
+2. Officer Name
+3. Citation Number
+4. Location
+5. License Plate
+6. Issued Date
 
-`citationNo`* · `issueDate`* · `issueTime` · `lot` · `officer` · `plate` ·
-`state` · `make` · `violation` · `amountDue` · `amountPaid` · `balance` ·
-`status` · `paidDate` · `appealStatus` · `notes`   *(\* required)*
+A hazard stripe marks the shared records table. The **Refresh** button explicitly reports either a successful shared-Sheet read or an **OFFLINE CACHE** fallback.
 
-- **Money** columns tolerate `$`, `,`, spaces and `(...)` for negatives.
-- **Dates** accept `YYYY-MM-DD`, US `M/D/YYYY`, `M/D/YY`, `7-Mar-2024`,
-  `Mar 7, 2024`. Unparseable dates are kept but excluded from date ranges
-  (shown as "Undated").
-- **Status** is normalised to `paid` / `pending` / `appealed` / `void` by
-  keyword; the original text is shown on the pill and kept in `statusRaw`.
-  If there's no status column, `balance` (or `amountDue − amountPaid`) decides
-  paid vs pending.
+## Import behavior
 
----
+The source CSV includes a combined `Issue Date & Time` field. DEV reuses that source for both canonical fields and normalizes it into:
+
+- `issueDate` → `YYYY-MM-DD`
+- `issueTime` → `HH:mm:ss`
+
+Imports are upserted by **Citation Number**. After a POST, the frontend performs a readable list request and verifies that the imported citation numbers exist before reporting the import as saved.
+
+## Shared Google Sheet
+
+The primary tab preserves the source report structure used by Apps Script. A second tab, **Citations by Date**, is an automatic view ordered by date and time. It uses actual Sheet date/time values instead of fixed string positions, so morning times such as `07:46:50` remain valid.
+
+## Safety / DEV limitations
+
+- Whole-sheet `clear` is disabled in DEV until an authenticated backend gateway exists.
+- The Apps Script deployment must be redeployed after `apps-script/Code.gs` changes before those backend changes become live.
+- Do not use a query-string or browser-saved alternate API endpoint. DEV has one authoritative Apps Script URL.
 
 ## Files
 
+```text
+index.html            Existing dashboard UI and CSV parser
+shared-sync.js        Shared Sheet transport, deterministic view state, refresh status, six-column presentation
+apps-script/Code.gs   DEV Apps Script backend
+sw.js                 PWA cache and authoritative shared boot path
+manifest.json         PWA metadata
 ```
-index.html      whole app (inline CSS + JS, no dependencies)
-manifest.json   PWA manifest
-sw.js           service worker (offline shell; bump CACHE_NAME to ship an update)
-assets/logo.png
-icons/          192 / 512, plain + maskable
-```
 
-CSV parsing, the dashboard, IndexedDB access and a minimal chart are all inline
-in `index.html` — no libraries. i18n: EN / ES / AR / AR-EG. Dark mode toggle is
-persisted. Respects `prefers-reduced-motion`.
+## Development rule
 
-## Deploy
-
-Static host (GitHub Pages like the other PCI apps). Push to a repo, enable
-Pages on the default branch, done — it works offline after first load.
-
-To add it to the launchers (Pci-Employee / Pci-Supervisor / Management app),
-add a tool entry pointing at the Pages URL. The launchers' CSP already allows
-`https://parkingconceptsinc.github.io` as a frame source, and the app opens in
-their in-page iframe with no cross-origin calls.
-
-## Not in scope
-
-- No writing back to iParq (no public API wired up).
-- No `.xlsx` parsing — export CSV from The Permit Store or Excel.
-- Data is per-device. For a shared history, each supervisor imports their own
-  export, or switch to an Apps Script + Sheet backend later.
+Citation Tracker is being developed as one PCI Web App at a time. Keep DEV and future PROD resources separate. Do not infer that a Git branch named `main` is the broader PCI production environment.
