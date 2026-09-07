@@ -1,9 +1,10 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v3";
+const CACHE_NAME = CACHE_PREFIX + "v5-dev-dashboard-refresh";
 
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./shared-sync.js",
   "./manifest.json",
   "./assets/logo.png",
   "./icons/icon-192.png",
@@ -26,15 +27,38 @@ self.addEventListener("activate", event => {
   );
 });
 
-// Stale-while-revalidate for same-origin GETs. The whole app is static and
-// runs entirely offline (data lives in IndexedDB), so a cached shell paints
-// instantly and the background fetch refreshes it for next open. Update path:
-// bump CACHE_NAME.
+function injectSharedSync(response) {
+  if (!response) return response;
+  return response.text().then(html => {
+    if (!/shared-sync\.js/.test(html)) {
+      html = html.replace(/<\/body>/i, '<script src="./shared-sync.js"></script>\n</body>');
+    }
+    const headers = new Headers(response.headers);
+    headers.set('content-type', 'text/html; charset=utf-8');
+    headers.set('cache-control', 'no-cache');
+    return new Response(html, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  });
+}
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  const isNavigation = request.mode === "navigate" || /\/(?:index\.html)?$/.test(url.pathname);
+  if (isNavigation) {
+    event.respondWith(
+      fetch(request)
+        .catch(() => caches.match("./index.html"))
+        .then(response => injectSharedSync(response))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then(cached => {
@@ -45,7 +69,7 @@ self.addEventListener("fetch", event => {
           .then(cache => cache.put(request, copy))
           .catch(() => {})
           .then(() => response);
-      }).catch(() => cached || caches.match("./index.html"));
+      }).catch(() => cached);
       if (cached) event.waitUntil(network);
       return cached || network;
     })
