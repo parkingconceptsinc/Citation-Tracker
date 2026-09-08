@@ -157,7 +157,7 @@
   // state. Filters remain usable during the session but no partitioned
   // browser storage can make the two launchers appear to have different data.
   function resetViewState(){
-    var defaults = {range:'30d', lot:'', officer:'', status:'', q:''};
+    var defaults = {range:'30d', dateFrom:'', dateTo:'', lot:'', officer:'', status:'', q:''};
     try { localStorage.setItem('cit-filters', JSON.stringify(defaults)); } catch (_) {}
     if ('filters' in window) window.filters = defaults;
     if ('sortKey' in window) window.sortKey = 'issueDate';
@@ -165,8 +165,12 @@
     if ('pageNo' in window) window.pageNo = 1;
     var search = document.getElementById('fSearch');
     var status = document.getElementById('fStatus');
+    var dateFrom = document.getElementById('fDateFrom');
+    var dateTo = document.getElementById('fDateTo');
     if (search) search.value = '';
     if (status) status.value = '';
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
     Array.prototype.forEach.call(document.querySelectorAll('#rangeSeg button'), function(b){
       b.classList.toggle('on', b.dataset.range === '30d');
     });

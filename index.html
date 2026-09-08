@@ -312,6 +312,8 @@ tr:hover td{background:var(--surface-2)}
           <button type="button" data-range="30d" class="on" data-i18n="r30">30d</button>
           <button type="button" data-range="all" data-i18n="rAll">All</button>
         </div>
+        <input type="date" id="fDateFrom" aria-label="Citations from date" title="From date">
+        <input type="date" id="fDateTo" aria-label="Citations through date" title="Through date">
         <select id="fLot"><option value="" data-i18n="allLots">All lots</option></select>
         <select id="fOfficer"><option value="" data-i18n="allOfficers">All officers</option></select>
         <select id="fStatus">
@@ -764,7 +766,8 @@ function idbClear(){
 var ALL = [];                 // every record in memory
 var mapping = LS.get("cit-mapping", null);   // {canonicalField: "Source Header"}
 var pendingImport = null;     // {headers, rows} awaiting mapping
-var filters = LS.get("cit-filters", { range:"30d", lot:"", officer:"", status:"", q:"" });
+var filters = LS.get("cit-filters", { range:"30d", dateFrom:"", dateTo:"", lot:"", officer:"", status:"", q:"" });
+filters.dateFrom = filters.dateFrom || ""; filters.dateTo = filters.dateTo || "";
 var sortKey = "issueDate", sortDir = -1;
 var pageNo = 1, PAGE = 25;
 
@@ -910,8 +913,11 @@ function dateFloorISO(daysAgo){
 }
 function todayISO(){ var d=new Date(); return iso(d.getFullYear(), d.getMonth()+1, d.getDate()); }
 function inRange(rec){
-  if(filters.range==="all") return true;
   if(!rec.issueDate) return false;
+  if(filters.dateFrom && rec.issueDate < filters.dateFrom) return false;
+  if(filters.dateTo && rec.issueDate > filters.dateTo) return false;
+  if(filters.dateFrom || filters.dateTo) return true;
+  if(filters.range==="all") return true;
   var from = filters.range==="today" ? todayISO() : filters.range==="7d" ? dateFloorISO(6) : dateFloorISO(29);
   return rec.issueDate >= from;
 }
@@ -1212,14 +1218,18 @@ function bind(){
   $("fOfficer").addEventListener("change", function(){ filters.officer=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
   $("fStatus").addEventListener("change", function(){ filters.status=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
   $("fStatus").value = filters.status || "";
+  ["fDateFrom","fDateTo"].forEach(function(id){
+    $(id).addEventListener("change", function(){ filters[id==="fDateFrom"?"dateFrom":"dateTo"] = this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
+  });
+  $("fDateFrom").value = filters.dateFrom; $("fDateTo").value = filters.dateTo;
   var st;
   $("fSearch").addEventListener("input", function(){
     var v=this.value; clearTimeout(st); st=setTimeout(function(){ filters.q=v; LS.set("cit-filters",filters); pageNo=1; render(); }, 200);
   });
   $("fSearch").value = filters.q || "";
   $("clearFilters").addEventListener("click", function(){
-    filters = { range:"30d", lot:"", officer:"", status:"", q:"" }; LS.set("cit-filters", filters); pageNo=1;
-    $("fSearch").value=""; $("fStatus").value=""; refreshFilterOptions();
+    filters = { range:"30d", dateFrom:"", dateTo:"", lot:"", officer:"", status:"", q:"" }; LS.set("cit-filters", filters); pageNo=1;
+    $("fSearch").value=""; $("fStatus").value=""; $("fDateFrom").value=""; $("fDateTo").value=""; refreshFilterOptions();
     Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(x){ x.classList.toggle("on", x.dataset.range==="30d"); });
     render();
   });
