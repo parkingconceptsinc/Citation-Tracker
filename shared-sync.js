@@ -11,7 +11,7 @@
   var localClear = window.idbClear;
   var originalRender = window.render;
   var originalCommitImport = window.commitImport;
-  var sharedState = { source:'boot', error:'', lastSync:null };
+  var sharedState = { source:'loading', error:'', lastSync:null };
 
   // Remove the obsolete per-browser endpoint override. Management and
   // Supervisor must never be able to point at different Citation APIs.
@@ -185,21 +185,23 @@
     style.id = 'pci-shared-dashboard-style';
     style.textContent =
       '#tbl thead th{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:2px solid var(--line);}' +
-      '#sharedHazardLine{height:7px;width:100%;border-radius:5px 5px 0 0;background:repeating-linear-gradient(45deg,#f2a900 0 12px,#111 12px 24px);background-size:200% 100%;}' +
+      '#sharedHazardLine{height:3px;width:100%;border-radius:999px;background:var(--surface,#fff);box-shadow:0 0 0 1px var(--blue,#2563eb),0 0 9px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.28)));}' +
+      '#sharedHazardLine[data-busy="1"]{animation:blueGlow 2.4s ease-in-out infinite;}' +
+      '@keyframes blueGlow{0%,100%{box-shadow:0 0 7px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.24)));opacity:.9;}50%{box-shadow:0 0 16px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.42)));opacity:1;}}' +
       '#sharedRefreshBtn[data-busy="1"]{opacity:.65;cursor:progress;}' +
-      '#sharedRefreshStamp{font-size:11px;color:var(--ink-faint);white-space:nowrap;}' +
-      '#sharedRefreshStamp[data-source="shared"]{color:var(--green);font-weight:700;}' +
-      '#sharedRefreshStamp[data-source="offline"]{color:var(--danger);font-weight:800;}' +
-      '@media(max-width:620px){#sharedRefreshStamp{display:none;}}';
+      '#sharedRefreshBtn:focus-visible{outline:2px solid var(--blue,#2563eb);outline-offset:3px;}' +
+      '#sharedRefreshStamp{font-size:11px;color:var(--ink-soft,var(--ink-faint,#5B6478));white-space:nowrap;}' +
+      '@media(prefers-reduced-motion:reduce){#sharedHazardLine[data-busy="1"]{animation:none !important;}}';
     document.head.appendChild(style);
   }
 
-  function installHazardLine(){
+  function installSharedLine(){
     if (document.getElementById('sharedHazardLine')) return;
     var table = document.getElementById('tbl');
     if (!table || !table.parentNode) return;
     var line = document.createElement('div');
     line.id = 'sharedHazardLine';
+    line.dataset.busy = '0';
     line.setAttribute('aria-hidden','true');
     table.parentNode.insertBefore(line, table);
   }
@@ -240,36 +242,61 @@
     if (!stamp) return;
     var when = sharedState.lastSync ? sharedState.lastSync.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
     stamp.dataset.source = sharedState.source;
-    if (sharedState.source === 'shared') {
+    stamp.setAttribute('role','status');
+    stamp.setAttribute('aria-live','polite');
+    stamp.setAttribute('aria-atomic','true');
+    if (sharedState.source === 'loading') {
+      stamp.textContent = 'Loading shared citations…';
+      stamp.title = 'Loading the shared Google Sheet';
+    } else if (sharedState.source === 'connecting') {
+      stamp.textContent = 'Connecting to shared citations…';
+      stamp.title = 'Connecting to the shared Google Sheet';
+    } else if (sharedState.source === 'shared') {
       stamp.textContent = 'Shared · Updated ' + when;
       stamp.title = 'Loaded from the shared Google Sheet';
     } else if (sharedState.source === 'offline') {
-      stamp.textContent = 'OFFLINE CACHE · ' + when;
+      stamp.textContent = 'Offline Cache · ' + when;
       stamp.title = sharedState.error || 'Shared Sheet unavailable';
     } else {
-      stamp.textContent = 'Connecting…';
+      stamp.textContent = 'Loading shared citations…';
     }
+  }
+
+  function setRefreshBusy(busy){
+    var btn = document.getElementById('sharedRefreshBtn');
+    var line = document.getElementById('sharedHazardLine');
+    if (btn) btn.dataset.busy = busy ? '1' : '0';
+    if (line) line.dataset.busy = busy ? '1' : '0';
   }
 
   function runSharedRefresh(){
     var btn = document.getElementById('sharedRefreshBtn');
     if (btn && btn.dataset.busy === '1') return Promise.resolve();
+    sharedState.source = 'connecting';
+    sharedState.error = '';
+    updateRefreshStamp();
+    setRefreshBusy(true);
     if (btn) {
-      btn.dataset.busy = '1';
       btn.disabled = true;
       btn.textContent = 'Refreshing…';
     }
-    var work = typeof window.refresh === 'function' ? window.refresh() : Promise.resolve();
+    var work;
+    try {
+      work = typeof window.refresh === 'function' ? window.refresh() : Promise.resolve();
+    } catch (err) {
+      work = Promise.reject(err);
+    }
     return Promise.resolve(work).then(function(){
       applyColumnOrder();
-      installHazardLine();
+      installSharedLine();
       updateRefreshStamp();
-      if (sharedState.source === 'offline' && typeof window.toast === 'function') {
-        window.toast('Shared Sheet unavailable — showing offline cache');
-      }
+    }).catch(function(err){
+      if (sharedState.source !== 'offline') setSharedState('offline', err);
+      updateRefreshStamp();
+      throw err;
     }).finally(function(){
+      setRefreshBusy(false);
       if (btn) {
-        btn.dataset.busy = '0';
         btn.disabled = false;
         btn.textContent = '↻ Refresh';
       }
@@ -282,7 +309,10 @@
     if (!exportBtn || !exportBtn.parentNode) return;
     var stamp = document.createElement('span');
     stamp.id = 'sharedRefreshStamp';
-    stamp.textContent = 'Connecting…';
+    stamp.setAttribute('role','status');
+    stamp.setAttribute('aria-live','polite');
+    stamp.setAttribute('aria-atomic','true');
+    stamp.textContent = 'Loading shared citations…';
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn sm';
@@ -290,7 +320,7 @@
     btn.textContent = '↻ Refresh';
     btn.title = 'Reload citations from the shared Google Sheet';
     btn.addEventListener('click', function(){ runSharedRefresh().catch(function(err){
-      if (typeof window.toast === 'function') window.toast(String(err && err.message || err));
+      console.warn('[Citation Tracker] shared refresh failed', err);
     }); });
     exportBtn.parentNode.insertBefore(stamp, exportBtn);
     exportBtn.parentNode.insertBefore(btn, exportBtn);
@@ -300,7 +330,7 @@
     window.render = function(){
       var result = originalRender.apply(this, arguments);
       applyColumnOrder();
-      installHazardLine();
+      installSharedLine();
       return result;
     };
   }
@@ -318,11 +348,22 @@
   resetViewState();
   installSharedStyles();
   installRefreshButton();
-  installHazardLine();
+  installSharedLine();
   showMode();
   applyColumnOrder();
-  runSharedRefresh().catch(function(err){
-    console.error('[Citation Tracker] shared refresh failed', err);
-    updateRefreshStamp();
-  });
+  updateRefreshStamp();
+
+  // The service worker replaces legacy index.html refresh() during shared
+  // boot and leaves this guarded hand-off marker for the injected runtime.
+  // Direct/standalone loads have no marker and still get one reliable boot
+  // refresh. Repeated runtime injection cannot start another one.
+  var sharedBootPending = window.__PCI_SHARED_BOOT_PENDING__ === true;
+  if (sharedBootPending) window.__PCI_SHARED_BOOT_PENDING__ = false;
+  if (!window.__PCI_SHARED_BOOT_STARTED__) {
+    window.__PCI_SHARED_BOOT_STARTED__ = true;
+    runSharedRefresh().catch(function(err){
+      console.error('[Citation Tracker] shared refresh failed', err);
+      updateRefreshStamp();
+    });
+  }
 })();

@@ -28,6 +28,12 @@
   --line:#E5E8EF; --bg:#F5F6F9; --surface:#FFFFFF; --surface-2:#F8FAFD;
   --navy:#10233F; --blue:#2563eb; --violet:#7c3aed; --cyan:#0891b2;
   --green:#10B981; --amber:#B76B00; --danger:#DC4E41;
+  --focus:#1D4ED8; --focus-ring:rgba(37,99,235,.28);
+  --blue-radial:rgba(37,99,235,.10); --violet-radial:rgba(124,58,237,.07);
+  --blue-tint:rgba(37,99,235,.12); --blue-wash:rgba(37,99,235,.06);
+  --blue-decor:rgba(37,99,235,.08); --green-decor:rgba(16,185,129,.10);
+  --amber-decor:rgba(183,107,0,.12); --violet-decor:rgba(124,58,237,.10);
+  --cyan-decor:rgba(8,145,178,.10);
   --radius-lg:18px; --radius-md:12px; --radius-sm:9px;
   --toast-bg:#0E163B; --tint:rgba(14,22,59,0.06);
   --ease:cubic-bezier(.2,.8,.2,1);
@@ -39,6 +45,7 @@
   --line:rgba(255,255,255,0.10); --bg:#10141F; --surface:#2E3A5C; --surface-2:#28324e;
   --tint:rgba(255,255,255,0.07); --toast-bg:#171F32;
   --amber:#E0A93D; --danger:#F0685A;
+  --focus:#93C5FD; --focus-ring:rgba(147,197,253,.34);
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{min-height:100%}
@@ -60,6 +67,15 @@ body{
 @keyframes riseIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+.sort-btn:focus-visible,.skip-link:focus-visible{
+  outline:3px solid var(--focus);outline-offset:3px;box-shadow:0 0 0 6px var(--focus-ring)
+}
+ .skip-link{position:fixed;left:16px;top:10px;z-index:200;transform:translateY(-180%);padding:10px 14px;
+  border-radius:var(--radius-sm);background:var(--surface);color:var(--ink);border:2px solid var(--focus);
+  box-shadow:0 8px 20px rgba(14,22,59,.18);font-size:13px;font-weight:700;text-decoration:none}
+.skip-link:focus{transform:translateY(0)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
 /* ---- topbar ----
@@ -122,13 +138,13 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 #emptyView{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;
   padding:46px 24px}
 #emptyView .big-icon{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;
-  background:rgba(37,99,235,.12);color:var(--blue);margin-bottom:10px}
+  background:var(--blue-tint);color:var(--blue);margin-bottom:10px}
 #emptyView .big-icon svg{width:28px;height:28px}
 #emptyView h2{font-family:'Fraunces',serif;font-size:20px;font-weight:600}
 #emptyView p{color:var(--ink-soft);font-size:13.5px;max-width:440px;line-height:1.5}
 .dropzone{margin-top:16px;width:100%;max-width:460px;border:2px dashed var(--line);border-radius:var(--radius-md);
   padding:26px 18px;color:var(--ink-soft);font-size:13px;transition:border-color .2s ease,background .2s ease}
-.dropzone.drag{border-color:var(--blue);background:rgba(37,99,235,.06);color:var(--ink)}
+.dropzone.drag{border-color:var(--blue);background:var(--blue-wash);color:var(--ink)}
 .dropzone strong{color:var(--blue)}
 
 /* ---- buttons ---- */
@@ -151,11 +167,11 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 .kpi span{display:block;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft)}
 .kpi strong{display:block;margin-top:9px;font-size:22px;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .kpi small{display:block;margin-top:6px;font-size:11px;color:var(--ink-soft)}
-.kpi::after{content:"";position:absolute;right:-22px;bottom:-26px;width:64px;height:64px;border-radius:50%;background:rgba(37,99,235,.08)}
-.kpi:nth-child(2)::after{background:rgba(16,185,129,.10)}
-.kpi:nth-child(3)::after{background:rgba(183,107,0,.12)}
-.kpi:nth-child(4)::after{background:rgba(124,58,237,.10)}
-.kpi:nth-child(5)::after{background:rgba(8,145,178,.10)}
+.kpi::after{content:"";position:absolute;right:-22px;bottom:-26px;width:64px;height:64px;border-radius:50%;background:var(--blue-decor)}
+.kpi:nth-child(2)::after{background:var(--green-decor)}
+.kpi:nth-child(3)::after{background:var(--amber-decor)}
+.kpi:nth-child(4)::after{background:var(--violet-decor)}
+.kpi:nth-child(5)::after{background:var(--cyan-decor)}
 .kpi .good{color:var(--green)} .kpi .warn{color:var(--amber)}
 
 /* ---- filters ---- */
@@ -192,8 +208,11 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:640px}
 th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-th{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);cursor:pointer;user-select:none}
-th.sort-asc::after{content:" \25B2"} th.sort-desc::after{content:" \25BC"}
+th{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-soft);user-select:none}
+.sort-btn{display:inline-flex;align-items:center;gap:4px;width:100%;padding:0;border:0;background:transparent;
+  color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:inherit;cursor:pointer}
+th.num .sort-btn{justify-content:flex-end}
+.sort-btn.sort-asc::after{content:" \25B2"} .sort-btn.sort-desc::after{content:" \25BC"}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
 tr:hover td{background:var(--surface-2)}
 .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.02em}
@@ -207,6 +226,7 @@ tr:hover td{background:var(--surface-2)}
 .modal{position:fixed;inset:0;z-index:80;display:none;align-items:flex-start;justify-content:center;
   padding:28px 16px;background:rgba(14,22,59,.55);overflow:auto}
 .modal.open{display:flex}
+.modal[aria-hidden="true"]{display:none}
 .modal-card{width:min(100%,560px);background:var(--surface);border:1px solid var(--line);
   border-radius:var(--radius-lg);box-shadow:0 30px 72px rgba(14,22,59,.28);
   animation:riseIn .28s var(--ease) both}
@@ -234,6 +254,8 @@ tr:hover td{background:var(--surface-2)}
 .sub-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .spacer{flex:1}
 .hint{color:var(--ink-faint);font-size:11px;font-weight:600}
+.status-region{padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2);
+  color:var(--ink-soft);font-size:12px;font-weight:600}
 [hidden]{display:none!important}
 
 @media (prefers-reduced-motion:reduce){
@@ -242,6 +264,8 @@ tr:hover td{background:var(--surface-2)}
 </style>
 </head>
 <body>
+
+<a class="skip-link" href="#main-content" data-i18n="skipToMain">Skip to main content</a>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M4 14v5a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-5"/><path d="M12 15V4"/><path d="M7.5 8.5 12 4l4.5 4.5"/></symbol>
@@ -258,7 +282,7 @@ tr:hover td{background:var(--surface-2)}
   <header class="topbar">
     <img src="./assets/logo.png" alt="PCI">
     <div class="head-txt">
-      <h1 data-i18n="appTitle">Citation Tracker</h1>
+      <h1 id="app-title" data-i18n="appTitle">Citation Tracker</h1>
       <p data-i18n="appSub">iParq / The Permit Store exports · on this device</p>
     </div>
     <div class="head-actions">
@@ -273,8 +297,8 @@ tr:hover td{background:var(--surface-2)}
           <button type="button" data-lang="ar-eg">&#1605;&#1589;&#1585;&#1610; (Egyptian)</button>
         </div>
       </div>
-      <button type="button" class="icon-btn" id="themeBtn" aria-label="Theme"><svg id="themeIcon"><use href="#i-moon"></use></svg></button>
-      <button type="button" class="icon-btn" id="manageBtn" aria-label="Data" title="Data"><svg><use href="#i-cog"></use></svg></button>
+      <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch to dark mode" aria-pressed="false"><svg id="themeIcon"><use href="#i-moon"></use></svg></button>
+      <button type="button" class="icon-btn" id="manageBtn" data-i18n-aria="manageData" aria-label="Manage citation data" title="Manage citation data"><svg><use href="#i-cog"></use></svg></button>
     </div>
   </header>
   <div class="meta" style="align-self:flex-end;margin-top:-10px">
@@ -282,12 +306,15 @@ tr:hover td{background:var(--surface-2)}
     <span id="lastImport"></span>
   </div>
 
+  <div class="status-region" id="appStatus" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+  <main id="main-content" aria-labelledby="app-title">
   <!-- EMPTY STATE -->
   <section class="card" id="emptyView">
     <div class="big-icon"><svg><use href="#i-ticket"></use></svg></div>
     <h2 data-i18n="emptyTitle">No citations imported yet</h2>
     <p data-i18n="emptyBody">In The Permit Store admin, export your citations report as CSV, then drop the file here. Everything stays in this browser.</p>
-    <label class="dropzone" id="dropzone">
+    <label class="dropzone" id="dropzone" role="button" tabindex="0" aria-controls="fileInput">
       <span data-i18n="dropHint">Drop a <strong>.csv</strong> file here, or tap to choose</span>
       <input type="file" id="fileInput" accept=".csv,.tsv,text/csv,text/plain" hidden>
     </label>
@@ -306,11 +333,12 @@ tr:hover td{background:var(--surface-2)}
 
     <div class="card pad">
       <div class="filters">
-        <div class="seg" id="rangeSeg">
-          <button type="button" data-range="today" data-i18n="rToday">Today</button>
-          <button type="button" data-range="7d" data-i18n="r7">7d</button>
-          <button type="button" data-range="30d" class="on" data-i18n="r30">30d</button>
-          <button type="button" data-range="all" data-i18n="rAll">All</button>
+        <div class="seg" id="rangeSeg" role="group" aria-labelledby="range-label">
+          <span class="sr-only" id="range-label" data-i18n="rangeLabel">Citation date range</span>
+          <button type="button" data-range="today" aria-pressed="false" data-i18n="rToday">Today</button>
+          <button type="button" data-range="7d" aria-pressed="false" data-i18n="r7" data-i18n-aria="r7Label" aria-label="Last 7 days">7d</button>
+          <button type="button" data-range="30d" class="on" aria-pressed="true" data-i18n="r30" data-i18n-aria="r30Label" aria-label="Last 30 days">30d</button>
+          <button type="button" data-range="all" aria-pressed="false" data-i18n="rAll">All</button>
         </div>
         <input type="date" id="fDateFrom" aria-label="Citations from date" title="From date">
         <input type="date" id="fDateTo" aria-label="Citations through date" title="Through date">
@@ -324,7 +352,7 @@ tr:hover td{background:var(--surface-2)}
           <option value="void" data-i18n="stVoid">Void</option>
         </select>
         <input type="search" id="fSearch" data-i18n-ph="searchPh" placeholder="Search plate / citation / officer">
-        <button type="button" class="btn sm ghost" id="clearFilters" data-i18n="clear">Clear</button>
+        <button type="button" class="btn sm ghost" id="clearFilters" data-i18n="clear">Clear filters</button>
       </div>
     </div>
 
@@ -359,34 +387,35 @@ tr:hover td{background:var(--surface-2)}
       <div class="tbl-wrap">
         <table id="tbl">
           <thead><tr>
-            <th data-sort="citationNo" data-i18n="cCit">Citation #</th>
-            <th data-sort="issueDate" class="sort-desc" data-i18n="cDate">Date</th>
-            <th data-sort="lot" data-i18n="cLot">Lot</th>
-            <th data-sort="officer" data-i18n="cOfficer">Officer</th>
-            <th data-sort="plate" data-i18n="cPlate">Plate</th>
-            <th data-sort="violation" data-i18n="cViolation">Violation</th>
-            <th data-sort="amountDue" class="num" data-i18n="cDue">Due</th>
-            <th data-sort="amountPaid" class="num" data-i18n="cPaid">Paid</th>
-            <th data-sort="status" data-i18n="cStatus">Status</th>
+            <th data-sort="citationNo"><button type="button" class="sort-btn" data-sort="citationNo" data-i18n="cCit">Citation #</button></th>
+            <th data-sort="issueDate" aria-sort="descending"><button type="button" class="sort-btn sort-desc" data-sort="issueDate" data-i18n="cDate">Date</button></th>
+            <th data-sort="lot"><button type="button" class="sort-btn" data-sort="lot" data-i18n="cLot">Lot</button></th>
+            <th data-sort="officer"><button type="button" class="sort-btn" data-sort="officer" data-i18n="cOfficer">Officer</button></th>
+            <th data-sort="plate"><button type="button" class="sort-btn" data-sort="plate" data-i18n="cPlate">Plate</button></th>
+            <th data-sort="violation"><button type="button" class="sort-btn" data-sort="violation" data-i18n="cViolation">Violation</button></th>
+            <th data-sort="amountDue" class="num"><button type="button" class="sort-btn" data-sort="amountDue" data-i18n="cDue">Due</button></th>
+            <th data-sort="amountPaid" class="num"><button type="button" class="sort-btn" data-sort="amountPaid" data-i18n="cPaid">Paid</button></th>
+            <th data-sort="status"><button type="button" class="sort-btn" data-sort="status" data-i18n="cStatus">Status</button></th>
           </tr></thead>
           <tbody id="tblBody"></tbody>
         </table>
       </div>
       <div class="pager">
-        <button type="button" class="btn sm ghost" id="prevPage" data-i18n="prev">Prev</button>
+        <button type="button" class="btn sm ghost" id="prevPage" data-i18n="prev">Previous page</button>
         <span id="pageInfo"></span>
-        <button type="button" class="btn sm ghost" id="nextPage" data-i18n="next">Next</button>
+        <button type="button" class="btn sm ghost" id="nextPage" data-i18n="next">Next page</button>
       </div>
     </div>
   </section>
+  </main>
 </div>
 
 <!-- COLUMN MAPPER -->
-<div class="modal" id="mapModal">
+<div class="modal" id="mapModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="mapModalTitle">
   <div class="modal-card">
     <div class="modal-head">
-      <h3 data-i18n="mapTitle">Map your columns</h3>
-      <button type="button" class="icon-btn" data-close-map aria-label="Close"><svg><use href="#i-x"></use></svg></button>
+      <h3 id="mapModalTitle" data-i18n="mapTitle">Map your columns</h3>
+      <button type="button" class="icon-btn" data-close-map data-i18n-aria="close" aria-label="Close"><svg><use href="#i-x"></use></svg></button>
     </div>
     <div class="modal-body">
       <p class="map-note" data-i18n="mapNote">Match each field to a column from your export. Only Citation&nbsp;# and Issue date are required. The mapping is saved for next time.</p>
@@ -394,17 +423,17 @@ tr:hover td{background:var(--surface-2)}
     </div>
     <div class="modal-foot">
       <button type="button" class="btn ghost" data-close-map data-i18n="cancel">Cancel</button>
-      <button type="button" class="btn primary" id="mapApply" data-i18n="mapApply">Import</button>
+      <button type="button" class="btn primary" id="mapApply" data-i18n="mapApply">Apply mapping</button>
     </div>
   </div>
 </div>
 
 <!-- DATA MANAGEMENT -->
-<div class="modal" id="manageModal">
+<div class="modal" id="manageModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="manageModalTitle">
   <div class="modal-card">
     <div class="modal-head">
-      <h3 data-i18n="manageTitle">Data</h3>
-      <button type="button" class="icon-btn" data-close-manage aria-label="Close"><svg><use href="#i-x"></use></svg></button>
+      <h3 id="manageModalTitle" data-i18n="manageTitle">Manage citation data</h3>
+      <button type="button" class="icon-btn" data-close-manage data-i18n-aria="close" aria-label="Close"><svg><use href="#i-x"></use></svg></button>
     </div>
     <div class="modal-body">
       <p class="map-note" id="manageStats"></p>
@@ -438,6 +467,8 @@ tr:hover td{background:var(--surface-2)}
 var I18N = {
   en:{
     appTitle:"Citation Tracker", appSub:"iParq / The Permit Store exports · on this device",
+    skipToMain:"Skip to main content", manageData:"Manage citation data", close:"Close",
+    rangeLabel:"Citation date range", r7Label:"Last 7 days", r30Label:"Last 30 days",
     emptyTitle:"No citations imported yet",
     emptyBody:"In The Permit Store admin, export your citations report as CSV, then drop the file here. Everything stays in this browser.",
     dropHint:"Drop a <strong>.csv</strong> file here, or tap to choose",
@@ -446,17 +477,17 @@ var I18N = {
     rToday:"Today", r7:"7d", r30:"30d", rAll:"All",
     allLots:"All lots", allOfficers:"All officers", allStatus:"All status",
     stPaid:"Paid", stPending:"Pending", stAppealed:"Appealed", stVoid:"Void",
-    searchPh:"Search plate / citation / officer", clear:"Clear",
+    searchPh:"Search plate / citation / officer", clear:"Clear filters",
     byLot:"By lot", byOfficer:"By officer", byStatus:"By status", trend:"Citations per day",
     barHint:"· count · billed", barHintCollected:"· count · collected", noResults:"No citations match these filters",
     records:"Records", exportCsv:"Export view (CSV)", importMore:"Import more",
     cCit:"Citation #", cDate:"Date", cLot:"Lot", cOfficer:"Officer", cPlate:"Plate",
     cViolation:"Violation", cDue:"Due", cPaid:"Paid", cStatus:"Status",
-    prev:"Prev", next:"Next",
+    prev:"Previous page", next:"Next page",
     mapTitle:"Map your columns",
     mapNote:"Match each field to a column from your export. Only Citation&nbsp;# and Issue date are required. The mapping is saved for next time.",
-    cancel:"Cancel", mapApply:"Import",
-    manageTitle:"Data", importCsv:"Import CSV", remap:"Re-map columns", exportAll:"Export all (CSV)",
+    cancel:"Cancel", mapApply:"Apply mapping",
+    manageTitle:"Manage citation data", importCsv:"Import CSV", remap:"Re-map columns", exportAll:"Export all (CSV)",
     clearAll:"Clear all data",
     manageNote:"Nothing leaves this browser. Clearing data cannot be undone — export first if you want a backup.",
     done:"Done",
@@ -466,7 +497,8 @@ var I18N = {
     fld_make:"Vehicle make / model", fld_violation:"Violation", fld_amountDue:"Amount due / fine",
     fld_amountPaid:"Amount paid", fld_balance:"Balance", fld_status:"Status",
     fld_paidDate:"Paid date", fld_appealStatus:"Appeal status", fld_notes:"Notes",
-    online:"Online", offline:"Offline",
+    online:"Online", offline:"Offline", themeLight:"Switch to light mode", themeDark:"Switch to dark mode",
+    loadingData:"Loading citation data…", loadFailed:"Citation data could not be refreshed.",
     tImporting:"Reading file…",
     tImported:"Imported {added} new, updated {updated}",
     tNeedCols:"Pick a column for Citation # and Issue date",
@@ -480,6 +512,8 @@ var I18N = {
   },
   es:{
     appTitle:"Control de citaciones", appSub:"Exportes de iParq / The Permit Store · en este dispositivo",
+    skipToMain:"Ir al contenido principal", manageData:"Administrar datos de citaciones", close:"Cerrar",
+    rangeLabel:"Rango de fechas de citaciones", r7Label:"Últimos 7 días", r30Label:"Últimos 30 días",
     emptyTitle:"Aún no importaste citaciones",
     emptyBody:"En el admin de The Permit Store, exportá el reporte de citaciones como CSV y soltá el archivo acá. Todo queda en este navegador.",
     dropHint:"Soltá un archivo <strong>.csv</strong> acá, o tocá para elegir",
@@ -488,17 +522,17 @@ var I18N = {
     rToday:"Hoy", r7:"7d", r30:"30d", rAll:"Todo",
     allLots:"Todos los lotes", allOfficers:"Todos los oficiales", allStatus:"Todos los estados",
     stPaid:"Pagada", stPending:"Pendiente", stAppealed:"Apelada", stVoid:"Anulada",
-    searchPh:"Buscar placa / citación / oficial", clear:"Limpiar",
+    searchPh:"Buscar placa / citación / oficial", clear:"Limpiar filtros",
     byLot:"Por lote", byOfficer:"Por oficial", byStatus:"Por estado", trend:"Citaciones por día",
     barHint:"· cantidad · facturado", barHintCollected:"· cantidad · cobrado", noResults:"Ninguna citación coincide con estos filtros",
     records:"Registros", exportCsv:"Exportar vista (CSV)", importMore:"Importar más",
     cCit:"Citación #", cDate:"Fecha", cLot:"Lote", cOfficer:"Oficial", cPlate:"Placa",
     cViolation:"Violación", cDue:"Debe", cPaid:"Pagó", cStatus:"Estado",
-    prev:"Anterior", next:"Siguiente",
+    prev:"Página anterior", next:"Página siguiente",
     mapTitle:"Asigná tus columnas",
     mapNote:"Asociá cada campo con una columna de tu exporte. Solo Citación&nbsp;# y Fecha son obligatorios. El mapeo se guarda para la próxima.",
-    cancel:"Cancelar", mapApply:"Importar",
-    manageTitle:"Datos", importCsv:"Importar CSV", remap:"Reasignar columnas", exportAll:"Exportar todo (CSV)",
+    cancel:"Cancelar", mapApply:"Aplicar asignación",
+    manageTitle:"Administrar datos de citaciones", importCsv:"Importar CSV", remap:"Reasignar columnas", exportAll:"Exportar todo (CSV)",
     clearAll:"Borrar todo",
     manageNote:"Nada sale de este navegador. Borrar los datos no se puede deshacer — exportá primero si querés respaldo.",
     done:"Listo",
@@ -508,7 +542,8 @@ var I18N = {
     fld_make:"Marca / modelo vehículo", fld_violation:"Violación", fld_amountDue:"Monto / multa",
     fld_amountPaid:"Monto pagado", fld_balance:"Saldo", fld_status:"Estado",
     fld_paidDate:"Fecha de pago", fld_appealStatus:"Estado de apelación", fld_notes:"Notas",
-    online:"En línea", offline:"Sin conexión",
+    online:"En línea", offline:"Sin conexión", themeLight:"Cambiar a modo claro", themeDark:"Cambiar a modo oscuro",
+    loadingData:"Cargando datos de citaciones…", loadFailed:"No se pudieron actualizar los datos de citaciones.",
     tImporting:"Leyendo archivo…",
     tImported:"Importadas {added} nuevas, actualizadas {updated}",
     tNeedCols:"Elegí una columna para Citación # y Fecha",
@@ -522,6 +557,8 @@ var I18N = {
   },
   ar:{
     appTitle:"متابعة المخالفات", appSub:"ملفات iParq / The Permit Store · على هذا الجهاز",
+    skipToMain:"انتقل إلى المحتوى الرئيسي", manageData:"إدارة بيانات المخالفات", close:"إغلاق",
+    rangeLabel:"النطاق الزمني للمخالفات", r7Label:"آخر ٧ أيام", r30Label:"آخر ٣٠ يوماً",
     emptyTitle:"لم يتم استيراد أي مخالفات بعد",
     emptyBody:"من لوحة The Permit Store، صدّر تقرير المخالفات بصيغة CSV ثم أفلِت الملف هنا. كل شيء يبقى في هذا المتصفّح.",
     dropHint:"أفلِت ملف <strong>.csv</strong> هنا، أو انقر للاختيار",
@@ -530,17 +567,17 @@ var I18N = {
     rToday:"اليوم", r7:"7أ", r30:"30أ", rAll:"الكل",
     allLots:"كل المواقف", allOfficers:"كل الضبّاط", allStatus:"كل الحالات",
     stPaid:"مدفوعة", stPending:"معلّقة", stAppealed:"مستأنفة", stVoid:"ملغاة",
-    searchPh:"بحث لوحة / مخالفة / ضابط", clear:"مسح",
+    searchPh:"بحث لوحة / مخالفة / ضابط", clear:"مسح الفلاتر",
     byLot:"حسب الموقف", byOfficer:"حسب الضابط", byStatus:"حسب الحالة", trend:"المخالفات يومياً",
     barHint:"· العدد · المفوتر", barHintCollected:"· العدد · المحصّل", noResults:"لا توجد مخالفات مطابقة لهذه الفلاتر",
     records:"السجلات", exportCsv:"تصدير العرض (CSV)", importMore:"استيراد المزيد",
     cCit:"رقم المخالفة", cDate:"التاريخ", cLot:"الموقف", cOfficer:"الضابط", cPlate:"اللوحة",
     cViolation:"المخالفة", cDue:"مستحق", cPaid:"مدفوع", cStatus:"الحالة",
-    prev:"السابق", next:"التالي",
+    prev:"الصفحة السابقة", next:"الصفحة التالية",
     mapTitle:"اربط الأعمدة",
     mapNote:"اربط كل حقل بعمود من ملفك. رقم المخالفة والتاريخ فقط إلزاميان. يُحفظ الربط للمرة القادمة.",
-    cancel:"إلغاء", mapApply:"استيراد",
-    manageTitle:"البيانات", importCsv:"استيراد CSV", remap:"إعادة ربط الأعمدة", exportAll:"تصدير الكل (CSV)",
+    cancel:"إلغاء", mapApply:"تطبيق الربط",
+    manageTitle:"إدارة بيانات المخالفات", importCsv:"استيراد CSV", remap:"إعادة ربط الأعمدة", exportAll:"تصدير الكل (CSV)",
     clearAll:"مسح كل البيانات",
     manageNote:"لا شيء يغادر هذا المتصفّح. لا يمكن التراجع عن المسح — صدّر أولاً للنسخ الاحتياطي.",
     done:"تم",
@@ -550,7 +587,8 @@ var I18N = {
     fld_make:"طراز السيارة", fld_violation:"المخالفة", fld_amountDue:"المبلغ المستحق",
     fld_amountPaid:"المبلغ المدفوع", fld_balance:"الرصيد", fld_status:"الحالة",
     fld_paidDate:"تاريخ الدفع", fld_appealStatus:"حالة الاستئناف", fld_notes:"ملاحظات",
-    online:"متصل", offline:"غير متصل",
+    online:"متصل", offline:"غير متصل", themeLight:"التبديل إلى الوضع الفاتح", themeDark:"التبديل إلى الوضع الداكن",
+    loadingData:"جارٍ تحميل بيانات المخالفات…", loadFailed:"تعذّر تحديث بيانات المخالفات.",
     tImporting:"جارٍ قراءة الملف…",
     tImported:"تم استيراد {added} جديدة، تحديث {updated}",
     tNeedCols:"اختر عموداً لرقم المخالفة والتاريخ",
@@ -567,7 +605,12 @@ I18N["ar-eg"] = Object.assign({}, I18N.ar, {
   appSub:"ملفات iParq / The Permit Store · ع الجهاز ده",
   emptyTitle:"مفيش مخالفات اتستوردت لسّة",
   dropHint:"ارمي ملف <strong>.csv</strong> هنا، أو دوس للاختيار",
-  clear:"مسح", done:"تمام",
+  clear:"مسح الفلاتر", done:"تمام", manageData:"إدارة بيانات المخالفات",
+  skipToMain:"روح للمحتوى الرئيسي", close:"اقفل", rangeLabel:"الفترة الزمنية للمخالفات",
+  r7Label:"آخر ٧ أيام", r30Label:"آخر ٣٠ يوم", mapApply:"طبّق الربط",
+  prev:"الصفحة اللي فاتت", next:"الصفحة الجاية", manageTitle:"إدارة بيانات المخالفات",
+  themeLight:"حوّل للوضع الفاتح", themeDark:"حوّل للوضع الداكن",
+  loadingData:"بيحمّل بيانات المخالفات…", loadFailed:"ماقدرناش نحدّث بيانات المخالفات.",
   online:"أونلاين", offline:"أوفلاين"
 });
 
@@ -625,6 +668,12 @@ function fmtMoneyShort(n){
 function toast(msg){
   var el = $("toast"); el.textContent = msg; el.classList.add("show");
   clearTimeout(toast._t); toast._t = setTimeout(function(){ el.classList.remove("show"); }, 2800);
+}
+function setStatus(msg){
+  var el = $("appStatus");
+  el.textContent = msg || "";
+  el.hidden = !msg;
+  $("main-content").setAttribute("aria-busy", msg ? "true" : "false");
 }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 
@@ -770,9 +819,43 @@ var filters = LS.get("cit-filters", { range:"30d", dateFrom:"", dateTo:"", lot:"
 filters.dateFrom = filters.dateFrom || ""; filters.dateTo = filters.dateTo || "";
 var sortKey = "issueDate", sortDir = -1;
 var pageNo = 1, PAGE = 25;
+var activeModal = null, modalReturnFocus = null;
+
+function modalFocusables(m){
+  return Array.prototype.filter.call(m.querySelectorAll("a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])"), function(el){
+    return !el.hidden && el.getClientRects().length > 0;
+  });
+}
+function openModal(m, trigger){
+  activeModal = m;
+  modalReturnFocus = trigger || document.activeElement;
+  m.classList.add("open");
+  m.setAttribute("aria-hidden", "false");
+  setTimeout(function(){
+    var first = modalFocusables(m)[0];
+    if(first) first.focus();
+  }, 0);
+}
+function closeModal(m){
+  m.classList.remove("open");
+  m.setAttribute("aria-hidden", "true");
+  if(m.id === "mapModal") pendingImport = null;
+  if(activeModal === m){
+    var target = modalReturnFocus;
+    activeModal = null; modalReturnFocus = null;
+    if(target && document.contains(target) && !target.disabled && target.getClientRects().length) target.focus();
+  }
+}
+function syncRangeButtons(){
+  Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(b){
+    var selected = b.dataset.range === filters.range;
+    b.classList.toggle("on", selected);
+    b.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+}
 
 /* ---------------- import flow ---------------- */
-function handleFile(file){
+function handleFile(file, trigger){
   if(!file) return;
   // Parsing is synchronous and can take a beat on a big export — say so
   // immediately, then let that paint before the parse loop runs.
@@ -789,7 +872,7 @@ function handleFile(file){
       if(mapping && mappingFits(mapping, parsed.headers)){
         commitImport(buildMapping(mapping, parsed.headers));
       }else{
-        openMapper(parsed.headers, guessMapping(parsed.headers));
+        openMapper(parsed.headers, guessMapping(parsed.headers), trigger || document.activeElement);
       }
     }, big ? 30 : 0);
   };
@@ -824,7 +907,7 @@ function guessMapping(headers){
   if(mapping) FIELDS.forEach(function(f){ if(mapping[f] && headers.indexOf(mapping[f])>=0 && !map[f]) map[f]=mapping[f]; });
   return map;
 }
-function openMapper(headers, guess){
+function openMapper(headers, guess, trigger){
   var box = $("mapRows"); box.innerHTML = "";
   FIELDS.forEach(function(f){
     var req = REQUIRED_FIELDS.indexOf(f)>=0;
@@ -844,7 +927,7 @@ function openMapper(headers, guess){
       '<select data-field="'+f+'">'+opts+'</select>';
     box.appendChild(row);
   });
-  $("mapModal").classList.add("open");
+  openModal($("mapModal"), trigger || document.activeElement);
 }
 function readMapperSelections(){
   var map = {};
@@ -898,7 +981,7 @@ function commitImport(built){
   var updated = incoming.length - added;
   idbBulkPut(incoming).then(function(){
     LS.set("cit-lastImport", { when:new Date().toISOString(), n:incoming.length });
-    $("mapModal").classList.remove("open");
+    closeModal($("mapModal"));
     pendingImport = null;
     return refresh();
   }).then(function(){
@@ -1049,11 +1132,16 @@ function render(){
   $("nextPage").disabled = pageNo>=pages;
 
   Array.prototype.forEach.call(document.querySelectorAll("th[data-sort]"), function(th){
-    th.classList.remove("sort-asc","sort-desc");
-    if(th.dataset.sort===sortKey) th.classList.add(sortDir>0?"sort-asc":"sort-desc");
+    var control = th.querySelector(".sort-btn");
+    th.setAttribute("aria-sort", th.dataset.sort===sortKey ? (sortDir>0 ? "ascending" : "descending") : "none");
+    if(control){
+      control.classList.remove("sort-asc","sort-desc");
+      if(th.dataset.sort===sortKey) control.classList.add(sortDir>0?"sort-asc":"sort-desc");
+    }
   });
 }
 function refresh(){
+  setStatus(t("loadingData"));
   return idbAll().then(function(list){
     ALL = list;
     var has = ALL.length>0;
@@ -1062,6 +1150,10 @@ function refresh(){
     if(has){ refreshFilterOptions(); render(); }
     updateManageStats();
     updateLastImport();
+    setStatus("");
+  }).catch(function(e){
+    setStatus(t("loadFailed"));
+    throw e;
   });
 }
 function updateLastImport(){
@@ -1124,6 +1216,10 @@ function applyLang(){
   Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-ph]"), function(el){
     el.placeholder = t(el.dataset.i18nPh);
   });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-aria]"), function(el){
+    el.setAttribute("aria-label", t(el.dataset.i18nAria));
+  });
+  syncThemeIcon();
   Array.prototype.forEach.call(document.querySelectorAll("#langMenu button"), function(b){
     b.classList.toggle("on", b.dataset.lang===lang);
   });
@@ -1153,39 +1249,45 @@ function bind(){
   });
 
   // file import
-  $("fileInput").addEventListener("change", function(e){ handleFile(e.target.files[0]); e.target.value=""; });
   var dz = $("dropzone");
+  var fileImportTrigger = dz;
+  $("fileInput").addEventListener("change", function(e){ handleFile(e.target.files[0], fileImportTrigger); e.target.value=""; });
   ["dragenter","dragover"].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.add("drag"); }); });
   ["dragleave","drop"].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.remove("drag"); }); });
-  dz.addEventListener("drop", function(e){ handleFile(e.dataTransfer.files[0]); });
-  $("importMoreBtn").addEventListener("click", function(){ $("fileInput").click(); });
-  $("mImport").addEventListener("click", function(){ $("fileInput").click(); });
+  dz.addEventListener("drop", function(e){ handleFile(e.dataTransfer.files[0], dz); });
+  dz.addEventListener("keydown", function(e){
+    if(e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    $("fileInput").click();
+  });
+  $("importMoreBtn").addEventListener("click", function(){ fileImportTrigger = this; $("fileInput").click(); });
+  $("mImport").addEventListener("click", function(){ fileImportTrigger = dz; closeModal($("manageModal")); $("fileInput").click(); });
 
   // mapper
   Array.prototype.forEach.call(document.querySelectorAll("[data-close-map]"), function(b){
-    b.addEventListener("click", function(){ $("mapModal").classList.remove("open"); pendingImport=null; });
+    b.addEventListener("click", function(){ closeModal($("mapModal")); });
   });
   $("mapApply").addEventListener("click", function(){
     if(!pendingImport) return;
     commitImport(buildMapping(readMapperSelections(), pendingImport.headers));
   });
   $("mRemap").addEventListener("click", function(){
-    $("manageModal").classList.remove("open");
-    if(pendingImport){ openMapper(pendingImport.headers, mapping||{}); }
-    else { toast(t("importCsv")); $("fileInput").click(); }
+    closeModal($("manageModal"));
+    if(pendingImport){ openMapper(pendingImport.headers, mapping||{}, $("manageBtn")); }
+    else { toast(t("importCsv")); fileImportTrigger = dz; $("fileInput").click(); }
   });
 
   // manage
-  $("manageBtn").addEventListener("click", function(){ updateManageStats(); $("manageModal").classList.add("open"); });
+  $("manageBtn").addEventListener("click", function(){ updateManageStats(); openModal($("manageModal"), this); });
   Array.prototype.forEach.call(document.querySelectorAll("[data-close-manage]"), function(b){
-    b.addEventListener("click", function(){ $("manageModal").classList.remove("open"); });
+    b.addEventListener("click", function(){ closeModal($("manageModal")); });
   });
   $("mExportAll").addEventListener("click", function(){ exportRows(ALL.slice()); });
   $("mClear").addEventListener("click", function(){
     if(!confirm(t("confirmClear"))) return;
     idbClear().then(function(){
       LS.set("cit-lastImport", null);
-      $("manageModal").classList.remove("open");
+      closeModal($("manageModal"));
       return refresh();
     }).then(function(){ toast(t("tCleared")); });
   });
@@ -1196,24 +1298,35 @@ function bind(){
     m.addEventListener("click", function(e){ if(e.target === m) closeModal(m); });
   });
   document.addEventListener("keydown", function(e){
-    if(e.key !== "Escape") return;
-    var open = document.querySelector(".modal.open");
-    if(open) closeModal(open);
+    var open = activeModal && activeModal.classList.contains("open") ? activeModal : document.querySelector(".modal.open");
+    if(!open) return;
+    if(e.key === "Escape"){
+      e.preventDefault();
+      closeModal(open);
+      return;
+    }
+    if(e.key !== "Tab") return;
+    var focusables = modalFocusables(open);
+    if(!focusables.length) return;
+    var first = focusables[0], last = focusables[focusables.length-1];
+    if(!open.contains(document.activeElement)){
+      e.preventDefault(); first.focus();
+    }else if(e.shiftKey && document.activeElement === first){
+      e.preventDefault(); last.focus();
+    }else if(!e.shiftKey && document.activeElement === last){
+      e.preventDefault(); first.focus();
+    }
   });
-  function closeModal(m){
-    m.classList.remove("open");
-    if(m.id === "mapModal") pendingImport = null;
-  }
 
   // filters
   Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(b){
     b.addEventListener("click", function(){
       filters.range = b.dataset.range; LS.set("cit-filters", filters); pageNo=1;
-      Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(x){ x.classList.toggle("on", x===b); });
+      syncRangeButtons();
       render();
     });
   });
-  Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(b){ b.classList.toggle("on", b.dataset.range===filters.range); });
+  syncRangeButtons();
   $("fLot").addEventListener("change", function(){ filters.lot=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
   $("fOfficer").addEventListener("change", function(){ filters.officer=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
   $("fStatus").addEventListener("change", function(){ filters.status=this.value; LS.set("cit-filters",filters); pageNo=1; render(); });
@@ -1230,15 +1343,15 @@ function bind(){
   $("clearFilters").addEventListener("click", function(){
     filters = { range:"30d", dateFrom:"", dateTo:"", lot:"", officer:"", status:"", q:"" }; LS.set("cit-filters", filters); pageNo=1;
     $("fSearch").value=""; $("fStatus").value=""; $("fDateFrom").value=""; $("fDateTo").value=""; refreshFilterOptions();
-    Array.prototype.forEach.call(document.querySelectorAll("#rangeSeg button"), function(x){ x.classList.toggle("on", x.dataset.range==="30d"); });
+    syncRangeButtons();
     render();
   });
 
   // table sort + pager + export
-  Array.prototype.forEach.call(document.querySelectorAll("th[data-sort]"), function(th){
-    th.addEventListener("click", function(){
-      if(sortKey===th.dataset.sort) sortDir = -sortDir;
-      else { sortKey = th.dataset.sort; sortDir = (sortKey==="amountDue"||sortKey==="amountPaid"||sortKey==="issueDate") ? -1 : 1; }
+  Array.prototype.forEach.call(document.querySelectorAll(".sort-btn[data-sort]"), function(b){
+    b.addEventListener("click", function(){
+      if(sortKey===b.dataset.sort) sortDir = -sortDir;
+      else { sortKey = b.dataset.sort; sortDir = (sortKey==="amountDue"||sortKey==="amountPaid"||sortKey==="issueDate") ? -1 : 1; }
       pageNo=1; render();
     });
   });
@@ -1253,6 +1366,9 @@ function bind(){
 function syncThemeIcon(){
   var dark = document.documentElement.getAttribute("data-theme")==="dark";
   $("themeIcon").innerHTML = '<use href="#'+(dark?"i-sun":"i-moon")+'"></use>';
+  $("themeBtn").setAttribute("aria-label", t(dark ? "themeLight" : "themeDark"));
+  $("themeBtn").setAttribute("aria-pressed", dark ? "true" : "false");
+  $("themeBtn").setAttribute("title", t(dark ? "themeLight" : "themeDark"));
 }
 
 /* ---------------- boot ---------------- */
