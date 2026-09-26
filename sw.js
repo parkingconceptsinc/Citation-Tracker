@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v9-shared-api-url";
+const CACHE_NAME = CACHE_PREFIX + "v10-actprod-session";
 
 const APP_SHELL = [
   "./",
@@ -33,8 +33,8 @@ self.addEventListener("activate", event => {
           const u = new URL(client.url);
           const scopePath = new URL(self.registration.scope).pathname;
           if (u.origin !== self.location.origin || !u.pathname.startsWith(scopePath)) return;
-          if (u.searchParams.get("_pciShared") === "v9") return;
-          u.searchParams.set("_pciShared", "v9");
+          if (u.searchParams.get("_pciShared") === "v10") return;
+          u.searchParams.set("_pciShared", "v10");
           return client.navigate(u.href).catch(() => {});
         } catch (_) {}
       })))

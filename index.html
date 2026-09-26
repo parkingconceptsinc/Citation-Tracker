@@ -715,7 +715,12 @@ function parseCSV(text){
   return { headers:headers, rows:out };
 }
 function toCSV(objs, cols){
-  var q = function(v){ v = v==null?"":String(v); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  var q = function(v){
+    v = v==null?"":String(v);
+    // Excel runs cells that start with = + - @ as formulas; a leading ' keeps them text.
+    if(/^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'"+v;
+    return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  };
   var lines = [cols.map(q).join(",")];
   objs.forEach(function(o){ lines.push(cols.map(function(c){ return q(o[c]); }).join(",")); });
   return lines.join("\r\n");
@@ -973,6 +978,14 @@ function commitImport(built){
       notes:String(g("notes")||"").trim(),
       _imported:now
     };
+    // Send only what this CSV mapped. An unmapped column must not overwrite
+    // the Sheet's existing value with an empty one.
+    FIELDS.forEach(function(f){
+      if(f === "citationNo" || map[f]) return;
+      if(f === "status"){ delete rec.status; delete rec.statusRaw; return; }
+      if(f === "balance" && map.amountDue) return; // derived from amount due above
+      delete rec[f];
+    });
     incoming.push(rec);
   });
   if(!incoming.length){ toast(t("tNoRows")); return; }
@@ -1371,14 +1384,20 @@ function syncThemeIcon(){
   $("themeBtn").setAttribute("title", t(dark ? "themeLight" : "themeDark"));
 }
 
-/* ---------------- boot ---------------- */
+/* ---------------- boot ----------------
+   The first load happens before the service worker controls the page, so the
+   shared layer is loaded here directly. shared-sync.js owns the one boot
+   refresh (it checks the supervisor session first); calling refresh() here
+   would show this device's cached citations before that check. */
 bind();
 applyLang();
-refresh();
+window.__PCI_SHARED_BOOT_PENDING__ = true;
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", function(){ navigator.serviceWorker.register("./sw.js").catch(function(){}); });
 }
 </script>
+<script src="./shared-sync.js"></script>
+<script src="./shared-ui.js"></script>
 </body>
 </html>

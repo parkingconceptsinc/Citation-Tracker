@@ -1,8 +1,8 @@
 {
-  "name": "PCI Citation Tracker DEV",
-  "short_name": "Citations DEV",
-  "description": "PCI shared citation dashboard backed by the DEV Google Sheet",
-  "id": "./pci-citation-tracker-dev",
+  "name": "PCI Citation Tracker ACTPROD",
+  "short_name": "Citations ACTPROD",
+  "description": "PCI shared citation dashboard backed by the ACTPROD Google Sheet",
+  "id": "./pci-citation-tracker-actprod",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

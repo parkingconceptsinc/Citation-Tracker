@@ -1,25 +1,27 @@
-// PCI Citation Tracker — Shared Google Sheets backend (DEV)
-// Shared Sheet is authoritative. Deploy this file as the DEV Apps Script Web App.
+// PCI Citation Tracker — Shared Google Sheets backend (ACTPROD)
+// Shared Sheet is authoritative. Deployed as a Web App: execute as the owner,
+// access "Anyone" — every data action below still requires a valid
+// supervisor session from PCI Supervisor Auth.
 
-const SPREADSHEET_ID = '1R3VkJ0G40KXsW2IXPMMp-2PV0uR4d--qZs2B6LmUyAw';
-const SHEET_NAME = 'PCI Citation Tracker - Shared Citations DEV';
+const SPREADSHEET_ID = '1OQRGM9m74vRZaSoJf-Q-0ZbhTV18-6HvE0LvfuYCnLw';
+const SHEET_NAME = 'ACTPROD - PCI CITATION TRACKER - DATA';
 const KEY_HEADER = 'Citation Number';
-const ENV = 'DEV';
+const ENV = 'ACTPROD';
+
+// Same Supervisor Auth deployment the launchers log in against.
+const SUPERVISOR_AUTH_URL = 'https://script.google.com/macros/s/AKfycbxCdFcQGvTDMI34rrJu8HJXr3heRP_CGOr4nTGPePBEIm76_tOavEZaQkFr_z0poxk55Q/exec';
+const SESSION_CACHE_SECONDS = 60;
+const MAX_RECORDS_PER_IMPORT = 5000;
 
 function doGet(e) {
   try {
-    const action = String((e && e.parameter && e.parameter.action) || 'list').toLowerCase();
+    const params = (e && e.parameter) || {};
+    const action = String(params.action || 'list').toLowerCase();
     if (action === 'health') {
-      const ready = readiness_();
-      return output_({
-        ok: true,
-        service: 'PCI Citation Tracker',
-        env: ENV,
-        sheet: ready.sheet,
-        rows: ready.rows,
-        timestamp: new Date().toISOString()
-      }, e);
+      // Public liveness only: no sheet name, no row count.
+      return output_({ ok: true, service: 'PCI Citation Tracker', env: ENV, timestamp: new Date().toISOString() }, e);
     }
+    if (!isAuthorized_(params.token)) return output_({ ok: false, error: 'unauthorized', env: ENV }, e);
     if (action === 'list') {
       return output_({ ok: true, records: listCitations_(), env: ENV, timestamp: new Date().toISOString() }, e);
     }
@@ -32,15 +34,18 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = parseBody_(e);
+    if (!isAuthorized_(body.token)) return output_({ ok: false, error: 'unauthorized', env: ENV });
     const action = String(body.action || 'upsert').toLowerCase();
     if (action === 'upsert') {
-      const result = upsertCitations_(Array.isArray(body.records) ? body.records : []);
+      const records = Array.isArray(body.records) ? body.records : [];
+      if (records.length > MAX_RECORDS_PER_IMPORT) {
+        return output_({ ok: false, error: 'Too many records in one import (max ' + MAX_RECORDS_PER_IMPORT + ').', env: ENV });
+      }
+      const result = upsertCitations_(records);
       return output_({ ok: true, added: result.added, updated: result.updated, total: result.total, env: ENV, timestamp: new Date().toISOString() });
     }
     if (action === 'clear') {
-      // Whole-sheet deletion is intentionally disabled while this DEV Web App
-      // is reachable without an authenticated gateway.
-      return output_({ ok: false, error: 'Shared clear is disabled in DEV for data protection.', env: ENV });
+      return output_({ ok: false, error: 'Shared clear is disabled for data protection.', env: ENV });
     }
     return output_({ ok: false, error: 'Unsupported POST action: ' + action, env: ENV });
   } catch (err) {
@@ -48,6 +53,46 @@ function doPost(e) {
   }
 }
 
+/* ---------------- Supervisor session ----------------
+   The launcher passes its Supervisor Auth session token. It is checked with
+   Supervisor Auth's own "verify" action and the positive answer is cached
+   for a minute (keyed by a hash, never by the token itself). */
+function isAuthorized_(token) {
+  const value = String(token || '');
+  if (!value || value.length > 2048) return false;
+  const cache = CacheService.getScriptCache();
+  const key = 'sup-session:' + sha256Hex_(value);
+  if (cache.get(key) === 'ok') return true;
+  try {
+    const first = UrlFetchApp.fetch(SUPERVISOR_AUTH_URL, {
+      method: 'post',
+      payload: { action: 'verify', token: value },
+      // Apps Script answers POST with a redirect to a GET-only URL.
+      followRedirects: false,
+      muteHttpExceptions: true
+    });
+    const headers = first.getHeaders();
+    const location = headers.Location || headers.location;
+    const res = location ? UrlFetchApp.fetch(location, { method: 'get', muteHttpExceptions: true }) : first;
+    if (res.getResponseCode() !== 200) return false;
+    let body;
+    try { body = JSON.parse(res.getContentText() || '{}'); } catch (_) { return false; }
+    const ok = !!body && body.ok === true && !!body.username;
+    if (ok) cache.put(key, 'ok', SESSION_CACHE_SECONDS);
+    return ok;
+  } catch (err) {
+    Logger.log('Supervisor session check failed: ' + (err && err.message || err));
+    return false;
+  }
+}
+
+function sha256Hex_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, value)
+    .map(function (b) { return (b + 256).toString(16).slice(-2); })
+    .join('');
+}
+
+/* ---------------- Sheet access ---------------- */
 function withLock_(fn) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -71,20 +116,9 @@ function headers_(sh) {
   return sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map(String);
 }
 
-function readiness_() {
-  return withLock_(function(){
-    const sh = sheet_();
-    const headers = headers_(sh);
-    const idx = index_(headers);
-    if (!headers.length) throw new Error('Sheet has no headers');
-    if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
-    return { sheet: sh.getName(), rows: Math.max(0, sh.getLastRow() - 1) };
-  });
-}
-
 function index_(headers) {
   const out = {};
-  headers.forEach((h, i) => { out[String(h).trim()] = i; });
+  headers.forEach(function (h, i) { out[String(h).trim()] = i; });
   return out;
 }
 
@@ -139,19 +173,19 @@ function status_(raw, balance) {
 }
 
 function listCitations_() {
-  return withLock_(function(){
-    const sh = sheet_();
-    const headers = headers_(sh);
-    if (!headers.length || sh.getLastRow() < 2) return [];
-    const idx = index_(headers);
-    if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
-    const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
-    return values.map(row => normalizeRow_(row, idx)).filter(Boolean);
-  });
+  // Read-only: no lock needed. A read during an import simply sees the sheet
+  // before or after that import's single batch of writes.
+  const sh = sheet_();
+  const headers = headers_(sh);
+  if (!headers.length || sh.getLastRow() < 2) return [];
+  const idx = index_(headers);
+  if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
+  const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
+  return values.map(function (row) { return normalizeRow_(row, idx); }).filter(Boolean);
 }
 
 function normalizeRow_(row, idx) {
-  const citationNo = cell_(row, idx, 'Citation Number');
+  const citationNo = unescapeText_(cell_(row, idx, 'Citation Number'));
   if (!citationNo) return null;
   const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'));
   const plateParts = splitPlate_(cell_(row, idx, 'License Plate'));
@@ -179,9 +213,26 @@ function normalizeRow_(row, idx) {
   };
 }
 
+/* A value starting with = + - @ (or a tab/CR) would become a formula in the
+   Sheet. Prefixing an apostrophe stores it as plain text; Sheets hides the
+   apostrophe in the displayed value. */
+function sheetText_(value) {
+  const text = value == null ? '' : String(value);
+  return /^[=+\-@\t\r]/.test(text) ? "'" + text : text;
+}
+
+function unescapeText_(value) {
+  return String(value || '').replace(/^'/, '');
+}
+
+/* Upsert by Citation Number.
+   - Only the fields present in the record are written, so importing a CSV
+     that lacks a column (e.g. Status) never blanks existing values.
+   - Only changed or new rows are written: updated rows in contiguous runs,
+     new rows appended in one block. The rest of the sheet is untouched.
+   - Every row that repeats the same Citation Number is updated. */
 function upsertCitations_(records) {
-  if (!records.length) return { added: 0, updated: 0, total: readiness_().rows };
-  return withLock_(function(){
+  return withLock_(function () {
     const sh = sheet_();
     const headers = headers_(sh);
     const idx = index_(headers);
@@ -189,45 +240,77 @@ function upsertCitations_(records) {
 
     const rowCount = Math.max(0, sh.getLastRow() - 1);
     const rows = rowCount ? sh.getRange(2, 1, rowCount, headers.length).getValues() : [];
-    const existing = {};
-    rows.forEach((row, i) => {
-      const key = String(row[idx[KEY_HEADER]] == null ? '' : row[idx[KEY_HEADER]]).trim();
-      if (key && existing[key] == null) existing[key] = i;
+    const positions = {};
+    rows.forEach(function (row, i) {
+      const key = unescapeText_(String(row[idx[KEY_HEADER]] == null ? '' : row[idx[KEY_HEADER]]).trim());
+      if (!key) return;
+      (positions[key] = positions[key] || []).push(i);
     });
 
+    const touched = {};
+    const appended = [];
     let added = 0;
     let updated = 0;
-    records.forEach(rec => {
+    records.forEach(function (rec) {
+      if (!rec || typeof rec !== 'object') return;
       const key = String(rec.citationNo || rec.id || '').trim();
-      if (!key) return;
-      let pos = existing[key];
-      if (pos == null) {
-        pos = rows.length;
-        existing[key] = pos;
-        rows.push(new Array(headers.length).fill(''));
+      if (!key || key.length > 100) return;
+      let targets = positions[key];
+      if (!targets) {
+        const row = new Array(headers.length).fill('');
+        appended.push(row);
+        targets = positions[key] = [rows.length + appended.length - 1];
         added++;
       } else {
         updated++;
       }
-      const row = rows[pos];
-      set_(row, idx, 'Violation Type', rec.violation || '');
-      set_(row, idx, 'Officer Name', rec.officer || '');
-      set_(row, idx, 'Location', rec.lot || '');
-      set_(row, idx, 'Citation Number', key);
-      set_(row, idx, 'License Plate', joinPlate_(rec.plate, rec.state));
-      set_(row, idx, 'Issue Date & Time', joinIssued_(rec.issueDate, rec.issueTime));
-      set_(row, idx, 'Status', rec.statusRaw || rec.status || '');
-      if (rec.amountDue != null) set_(row, idx, 'Original Amount Due', rec.amountDue);
-      if (rec.amountPaid != null) set_(row, idx, 'Amount Paid', rec.amountPaid);
-      if (rec.balance != null) set_(row, idx, 'Current Amount Due', rec.balance);
+      targets.forEach(function (pos) {
+        const row = pos < rows.length ? rows[pos] : appended[pos - rows.length];
+        applyRecord_(row, idx, key, rec);
+        if (pos < rows.length) touched[pos] = true;
+      });
     });
 
-    if (rows.length) {
-      sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
-      SpreadsheetApp.flush();
+    // Updated rows: one write per contiguous run. getValues() returns text
+    // like '=… without its protecting apostrophe, so every text cell of a
+    // rewritten row is protected again before it goes back to the Sheet.
+    const protectRow = function (row) {
+      return row.map(function (v) { return typeof v === 'string' ? sheetText_(v) : v; });
+    };
+    const changed = Object.keys(touched).map(Number).sort(function (a, b) { return a - b; });
+    for (let i = 0; i < changed.length;) {
+      let j = i;
+      while (j + 1 < changed.length && changed[j + 1] === changed[j] + 1) j++;
+      sh.getRange(changed[i] + 2, 1, j - i + 1, headers.length).setValues(rows.slice(changed[i], changed[j] + 1).map(protectRow));
+      i = j + 1;
     }
-    return { added: added, updated: updated, total: rows.length };
+    if (appended.length) sh.getRange(rows.length + 2, 1, appended.length, headers.length).setValues(appended);
+    if (changed.length || appended.length) SpreadsheetApp.flush();
+    return { added: added, updated: updated, total: rows.length + appended.length };
   });
+}
+
+function has_(rec, field) {
+  return Object.prototype.hasOwnProperty.call(rec, field);
+}
+
+function applyRecord_(row, idx, key, rec) {
+  set_(row, idx, 'Citation Number', sheetText_(key));
+  if (has_(rec, 'violation')) set_(row, idx, 'Violation Type', sheetText_(rec.violation));
+  if (has_(rec, 'officer')) set_(row, idx, 'Officer Name', sheetText_(rec.officer));
+  if (has_(rec, 'lot')) set_(row, idx, 'Location', sheetText_(rec.lot));
+  if (has_(rec, 'plate') || has_(rec, 'state')) set_(row, idx, 'License Plate', sheetText_(joinPlate_(rec.plate, rec.state)));
+  if (has_(rec, 'issueDate') || has_(rec, 'issueTime')) set_(row, idx, 'Issue Date & Time', sheetText_(joinIssued_(rec.issueDate, rec.issueTime)));
+  if (has_(rec, 'statusRaw') || has_(rec, 'status')) set_(row, idx, 'Status', sheetText_(rec.statusRaw || rec.status || ''));
+  if (numberOrNull_(rec.amountDue) != null) set_(row, idx, 'Original Amount Due', numberOrNull_(rec.amountDue));
+  if (numberOrNull_(rec.amountPaid) != null) set_(row, idx, 'Amount Paid', numberOrNull_(rec.amountPaid));
+  if (numberOrNull_(rec.balance) != null) set_(row, idx, 'Current Amount Due', numberOrNull_(rec.balance));
+}
+
+function numberOrNull_(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return isFinite(n) ? n : null;
 }
 
 function set_(row, idx, header, value) {
@@ -265,7 +348,7 @@ function parseBody_(e) {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch (_) {}
   const out = {};
-  raw.split('&').forEach(pair => {
+  raw.split('&').forEach(function (pair) {
     const p = pair.split('=');
     out[decodeURIComponent(p[0] || '')] = decodeURIComponent((p.slice(1).join('=') || '').replace(/\+/g, ' '));
   });
@@ -283,4 +366,43 @@ function output_(obj, e) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ---------------- One-time migration (run from the editor) ----------------
+   Copies citations that exist in the old DEV sheet but not in ACTPROD.
+   Never overwrites a row that ACTPROD already has. Logs how many it added. */
+function mergeMissingFromDevSheet() {
+  const SOURCE_ID = '1R3VkJ0G40KXsW2IXPMMp-2PV0uR4d--qZs2B6LmUyAw';
+  const SOURCE_TAB = 'PCI Citation Tracker - Shared Citations DEV';
+  return withLock_(function () {
+    const src = SpreadsheetApp.openById(SOURCE_ID).getSheetByName(SOURCE_TAB);
+    if (!src) throw new Error('Source tab not found: ' + SOURCE_TAB);
+    const dst = sheet_();
+    const srcHeaders = headers_(src);
+    const dstHeaders = headers_(dst);
+    const srcIdx = index_(srcHeaders);
+    const dstIdx = index_(dstHeaders);
+    if (srcIdx[KEY_HEADER] == null || dstIdx[KEY_HEADER] == null) throw new Error('Missing ' + KEY_HEADER + ' header');
+
+    const have = {};
+    if (dst.getLastRow() > 1) {
+      dst.getRange(2, dstIdx[KEY_HEADER] + 1, dst.getLastRow() - 1, 1).getValues()
+        .forEach(function (r) { const k = unescapeText_(String(r[0] || '').trim()); if (k) have[k] = true; });
+    }
+    const srcRows = src.getLastRow() > 1 ? src.getRange(2, 1, src.getLastRow() - 1, srcHeaders.length).getValues() : [];
+    const out = [];
+    srcRows.forEach(function (r) {
+      const k = unescapeText_(String(r[srcIdx[KEY_HEADER]] || '').trim());
+      if (!k || have[k]) return;
+      have[k] = true;
+      out.push(dstHeaders.map(function (h) {
+        const i = srcIdx[String(h).trim()];
+        const v = i == null ? '' : r[i];
+        return typeof v === 'string' ? sheetText_(v) : v;
+      }));
+    });
+    if (out.length) dst.getRange(dst.getLastRow() + 1, 1, out.length, dstHeaders.length).setValues(out);
+    Logger.log('mergeMissingFromDevSheet: ' + out.length + ' citation(s) copied from DEV; ' + srcRows.length + ' checked.');
+    return out.length;
+  });
 }

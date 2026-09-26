@@ -1,11 +1,36 @@
-/* PCI Citation Tracker — shared Google Sheet sync layer (DEV)
+/* PCI Citation Tracker — shared Google Sheet sync layer (ACTPROD)
  * One authoritative backend for Management and Supervisor.
  * IndexedDB is used only as a visible offline read cache.
+ * Every call carries the supervisor session the launcher passed in ?token=.
  */
 (function(){
   'use strict';
 
   var API_URL = 'https://script.google.com/macros/s/AKfycbzWtAKS2m7Wye8glheRN70FnUhbKgTHbhip9bFSv3rmwuA1MUQ1acb5NX65vVRNg0AF/exec';
+  var SESSION_KEY = 'pci-citation-session';
+
+  // The supervisor launcher opens this page with ?token=<Supervisor Auth
+  // session>. Keep it for this tab only and take it out of the address bar
+  // so it is not copied, bookmarked or left in history.
+  var sessionToken = '';
+  (function captureSession(){
+    try {
+      var url = new URL(window.location.href);
+      var fromUrl = url.searchParams.get('token');
+      if (fromUrl) {
+        sessionStorage.setItem(SESSION_KEY, fromUrl);
+        url.searchParams.delete('token');
+        history.replaceState(history.state, '', url.pathname + (url.search || '') + url.hash);
+      }
+      sessionToken = sessionStorage.getItem(SESSION_KEY) || '';
+    } catch (_) {}
+  })();
+
+  function unauthorizedError(){
+    var err = new Error('Supervisor session required. Open Citation Tracker from the supervisor launcher.');
+    err.code = 'unauthorized';
+    return err;
+  }
   var localAll = window.idbAll;
   var localPut = window.idbBulkPut;
   var localClear = window.idbClear;
@@ -29,10 +54,13 @@
       }
       window[cb] = function(data){
         cleanup();
+        if (data && data.ok === false && data.error === 'unauthorized') return reject(unauthorizedError());
         if (data && data.ok === false) return reject(new Error(data.error || 'Citation API error'));
         resolve(data || {});
       };
       params = params || {};
+      if (!sessionToken) { cleanup(); return reject(unauthorizedError()); }
+      params.token = sessionToken;
       params.callback = cb;
       params._ = Date.now();
       var q = Object.keys(params).map(function(k){
@@ -46,6 +74,8 @@
   }
 
   function post(payload){
+    if (!sessionToken) return Promise.reject(unauthorizedError());
+    payload = Object.assign({ token: sessionToken }, payload);
     return fetch(API_URL, {
       method:'POST',
       mode:'no-cors',
@@ -98,6 +128,12 @@
       cacheShared(records);
       return records;
     }).catch(function(err){
+      if (err && err.code === 'unauthorized') {
+        // No session: show nothing and drop this device's copy of the data.
+        setSharedState('unauthorized', err);
+        if (localClear) localClear().catch(function(){});
+        return [];
+      }
       setSharedState('offline', err);
       console.warn('[Citation Tracker] shared read failed; showing offline cache', err);
       return localAll ? localAll() : [];
@@ -125,7 +161,7 @@
       setSharedState('shared');
       return cacheShared(server);
     }).catch(function(err){
-      setSharedState('offline', err);
+      setSharedState(err && err.code === 'unauthorized' ? 'unauthorized' : 'offline', err);
       throw err;
     });
   };
@@ -133,7 +169,7 @@
   // Destructive shared clear is disabled until the production auth gateway
   // exists. This prevents an unauthenticated /exec caller from wiping DEV.
   window.idbClear = function(){
-    return Promise.reject(new Error('Shared clear is disabled in DEV for data protection.'));
+    return Promise.reject(new Error('Shared clear is disabled for data protection.'));
   };
 
   // iParq supplies one column named "Issue Date & Time". The legacy mapper
@@ -257,6 +293,9 @@
     } else if (sharedState.source === 'offline') {
       stamp.textContent = 'Offline Cache · ' + when;
       stamp.title = sharedState.error || 'Shared Sheet unavailable';
+    } else if (sharedState.source === 'unauthorized') {
+      stamp.textContent = 'Session required · open from the supervisor launcher';
+      stamp.title = sharedState.error;
     } else {
       stamp.textContent = 'Loading shared citations…';
     }
@@ -338,8 +377,8 @@
   function showMode(){
     if (window.I18N && window.I18N.en) {
       window.I18N.en.appSub = 'iParq / The Permit Store · shared across devices';
-      window.I18N.en.manageNote = 'Google Sheets is the shared DEV data source. Offline cache is read-only fallback.';
-      window.I18N.en.confirmClear = 'Shared clear is disabled in DEV.';
+      window.I18N.en.manageNote = 'Google Sheets is the shared data source. Offline cache is read-only fallback.';
+      window.I18N.en.confirmClear = 'Shared clear is disabled.';
     }
     var sub = document.querySelector('.head-txt p');
     if (sub) sub.textContent = 'iParq / The Permit Store · shared across devices';

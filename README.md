@@ -1,17 +1,19 @@
-# PCI Citation Tracker — DEV
+# PCI Citation Tracker — ACTPROD
 
 Citation Tracker is a PCI Web App for importing **iParq / The Permit Store** citation exports and reviewing shared citation activity.
 
-## Current DEV architecture
+## Architecture (ACTPROD)
 
-`CSV import / Citation Tracker → Apps Script Web App → Google Sheet`
+`Supervisor launcher (session) → Citation Tracker → Apps Script Web App → Google Sheet`
 
-- **Authoritative datastore:** `PCI Citation Tracker - Shared Citations DEV`
-- **Apps Script environment:** DEV
+- **Authoritative datastore:** `ACTPROD - PCI CITATION TRACKER - DATA` (`1OQRGM9m74vRZaSoJf-Q-0ZbhTV18-6HvE0LvfuYCnLw`)
+- **Apps Script:** project `1fA2uDKLDG3oOroMd3JkwjCi4MaEwzGuNtz-0uMW8k0ZuW6GwWQn5V45P`, deployment `AKfycbzWtAKS…` (owner `pcireportsstadium@gmail.com`)
+- **Access:** every read and import needs the Supervisor Auth session. The Pci-Supervisor and Management launchers open this site with `?token=`; the page keeps it for the tab (sessionStorage) and removes it from the address bar. Without a valid session the page shows no data and clears its offline copy.
+- **Publishing:** only this folder is connected to GitHub. The `Citation-Tracker` DEV copy has no remote on purpose.
 - **Unique key:** Citation Number
 - **Offline behavior:** IndexedDB is a read-only fallback cache when the shared API cannot be reached.
 - **Management and Supervisor:** both launch the same GitHub Pages Citation Tracker and therefore must read the same shared dataset.
-- **DEV active deployment:** GitHub Pages from this repository's `main` branch. This does **not** mean PCI Reports PROD; PROD remains a separate construction path in the broader PCI Apps workflow.
+- **Live site:** GitHub Pages from this repository's `main` branch. This is ACTPROD, not the future PCI Reports PROD.
 
 ## Dashboard record order
 
@@ -33,24 +35,25 @@ The source CSV includes a combined `Issue Date & Time` field. DEV reuses that so
 - `issueDate` → `YYYY-MM-DD`
 - `issueTime` → `HH:mm:ss`
 
-Imports are upserted by **Citation Number**. After a POST, the frontend performs a readable list request and verifies that the imported citation numbers exist before reporting the import as saved.
+Imports are upserted by **Citation Number**. Only the columns present in the CSV are written, so a partial CSV never blanks existing values. Text that starts with `=`, `+`, `-` or `@` is stored as text (never as a formula), both in the Sheet and in CSV exports. After a POST, the frontend performs a readable list request and verifies that the imported citation numbers exist before reporting the import as saved.
 
 ## Shared Google Sheet
 
 The primary tab preserves the source report structure used by Apps Script. A second tab, **Citations by Date**, is an automatic view ordered by date and time. It uses actual Sheet date/time values instead of fixed string positions, so morning times such as `07:46:50` remain valid.
 
-## Safety / DEV limitations
+## Safety
 
-- Whole-sheet `clear` is disabled in DEV until an authenticated backend gateway exists.
+- Whole-sheet `clear` is disabled.
+- One-time migration: `mergeMissingFromDevSheet()` (run from the Apps Script editor) copies citations that exist only in the old DEV sheet; it never overwrites.
 - The Apps Script deployment must be redeployed after `apps-script/Code.gs` changes before those backend changes become live.
-- Do not use a query-string or browser-saved alternate API endpoint. DEV has one authoritative Apps Script URL.
+- Do not use a query-string or browser-saved alternate API endpoint. There is one authoritative Apps Script URL.
 
 ## Files
 
 ```text
 index.html            Existing dashboard UI and CSV parser
 shared-sync.js        Shared Sheet transport, deterministic view state, refresh status, six-column presentation
-apps-script/Code.gs   DEV Apps Script backend
+apps-script/Code.gs   ACTPROD Apps Script backend
 sw.js                 PWA cache and authoritative shared boot path
 manifest.json         PWA metadata
 ```
