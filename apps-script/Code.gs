@@ -21,7 +21,8 @@ function doGet(e) {
       // Public liveness only: no sheet name, no row count.
       return output_({ ok: true, service: 'PCI Citation Tracker', env: ENV, timestamp: new Date().toISOString() }, e);
     }
-    if (!isAuthorized_(params.token)) return output_({ ok: false, error: 'unauthorized', env: ENV }, e);
+    const auth = sessionCheck_(params.token);
+    if (!auth.ok) return output_({ ok: false, error: 'unauthorized', code: auth.code, env: ENV }, e);
     if (action === 'list') {
       return output_({ ok: true, records: listCitations_(), env: ENV, timestamp: new Date().toISOString() }, e);
     }
@@ -34,7 +35,8 @@ function doGet(e) {
 function doPost(e) {
   try {
     const body = parseBody_(e);
-    if (!isAuthorized_(body.token)) return output_({ ok: false, error: 'unauthorized', env: ENV });
+    const auth = sessionCheck_(body.token);
+    if (!auth.ok) return output_({ ok: false, error: 'unauthorized', code: auth.code, env: ENV });
     const action = String(body.action || 'upsert').toLowerCase();
     if (action === 'upsert') {
       const records = Array.isArray(body.records) ? body.records : [];
@@ -56,13 +58,21 @@ function doPost(e) {
 /* ---------------- Supervisor session ----------------
    The launcher passes its Supervisor Auth session token. It is checked with
    Supervisor Auth's own "verify" action and the positive answer is cached
-   for a minute (keyed by a hash, never by the token itself). */
-function isAuthorized_(token) {
+   for a minute (keyed by a hash, never by the token itself).
+   Returns {ok, code}; the code is a safe diagnostic (never the token). */
+function sessionCheck_(token) {
   const value = String(token || '');
-  if (!value || value.length > 2048) return false;
-  const cache = CacheService.getScriptCache();
-  const key = 'sup-session:' + sha256Hex_(value);
-  if (cache.get(key) === 'ok') return true;
+  if (!value) return { ok: false, code: 'TOKEN_MISSING' };
+  if (value.length > 2048) return { ok: false, code: 'TOKEN_TOO_LONG' };
+  let cache, key;
+  try {
+    cache = CacheService.getScriptCache();
+    key = 'sup-session:' + sha256Hex_(value);
+    if (cache.get(key) === 'ok') return { ok: true, code: 'CACHED' };
+  } catch (err) {
+    Logger.log('Session cache unavailable: ' + (err && err.message || err));
+    return { ok: false, code: 'CACHE_ERROR' };
+  }
   try {
     const first = UrlFetchApp.fetch(SUPERVISOR_AUTH_URL, {
       method: 'post',
@@ -74,16 +84,27 @@ function isAuthorized_(token) {
     const headers = first.getHeaders();
     const location = headers.Location || headers.location;
     const res = location ? UrlFetchApp.fetch(location, { method: 'get', muteHttpExceptions: true }) : first;
-    if (res.getResponseCode() !== 200) return false;
+    if (res.getResponseCode() !== 200) return { ok: false, code: 'AUTH_HTTP_' + res.getResponseCode() };
     let body;
-    try { body = JSON.parse(res.getContentText() || '{}'); } catch (_) { return false; }
-    const ok = !!body && body.ok === true && !!body.username;
-    if (ok) cache.put(key, 'ok', SESSION_CACHE_SECONDS);
-    return ok;
+    try { body = JSON.parse(res.getContentText() || '{}'); } catch (_) { return { ok: false, code: 'AUTH_NOT_JSON' }; }
+    if (!body || body.ok !== true || !body.username) {
+      return { ok: false, code: 'AUTH_' + String(body && body.error || 'INVALID').toUpperCase().replace(/[^A-Z_]/g, '').slice(0, 30) };
+    }
+    cache.put(key, 'ok', SESSION_CACHE_SECONDS);
+    return { ok: true, code: 'VERIFIED' };
   } catch (err) {
     Logger.log('Supervisor session check failed: ' + (err && err.message || err));
-    return false;
+    return { ok: false, code: 'AUTH_FETCH_ERROR' };
   }
+}
+
+/** Run once from the editor after deploying: it makes the same outbound call
+ *  as the session check, so Google asks the owner for the "connect to an
+ *  external service" permission the web app needs. Logs the outcome. */
+function authorizeSupervisorAuthCheck() {
+  const res = UrlFetchApp.fetch(SUPERVISOR_AUTH_URL, { method: 'get', muteHttpExceptions: true });
+  Logger.log('Supervisor Auth reachable: HTTP ' + res.getResponseCode());
+  return res.getResponseCode();
 }
 
 function sha256Hex_(value) {
