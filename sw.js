@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v10-actprod-session";
+const CACHE_NAME = CACHE_PREFIX + "v11-actprod-danger-color";
 
 const APP_SHELL = [
   "./",
