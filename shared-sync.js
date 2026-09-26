@@ -273,7 +273,34 @@
     });
   }
 
+  /* Without records the dashboard (and its stamp) stays hidden and the page
+     shows its empty "import a CSV" card. Without a session that card must
+     say how to get in instead of inviting an import that will fail. */
+  function showSessionRequired(on){
+    var view = document.getElementById('emptyView');
+    if (!view) return;
+    var title = view.querySelector('h2');
+    var body = view.querySelector('p');
+    var drop = document.getElementById('dropzone');
+    if (on) {
+      var es = /^es/i.test(document.documentElement.lang || '');
+      if (title) { title.removeAttribute('data-i18n'); title.textContent = es ? 'Se necesita la sesión de supervisor' : 'Supervisor session required'; }
+      if (body) {
+        body.removeAttribute('data-i18n');
+        body.textContent = es
+          ? 'Abrí Citation Tracker desde el launcher de supervisor (Supervisor o Management) con tu sesión iniciada.'
+          : 'Open Citation Tracker from the supervisor launcher (Supervisor or Management) while signed in.';
+      }
+      if (drop) drop.hidden = true;
+      view.dataset.session = 'required';
+    } else if (view.dataset.session === 'required') {
+      if (drop) drop.hidden = false;
+      delete view.dataset.session;
+    }
+  }
+
   function updateRefreshStamp(){
+    showSessionRequired(sharedState.source === 'unauthorized');
     var stamp = document.getElementById('sharedRefreshStamp');
     if (!stamp) return;
     var when = sharedState.lastSync ? sharedState.lastSync.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
@@ -379,6 +406,9 @@
       window.I18N.en.appSub = 'iParq / The Permit Store · shared across devices';
       window.I18N.en.manageNote = 'Google Sheets is the shared data source. Offline cache is read-only fallback.';
       window.I18N.en.confirmClear = 'Shared clear is disabled.';
+      // The legacy text said citations stay in this browser; they are shared now.
+      window.I18N.en.emptyBody = 'In The Permit Store admin, export your citations report as CSV, then drop the file here. Citations are saved to the shared Google Sheet.';
+      if (window.I18N.es) window.I18N.es.emptyBody = 'En el admin de The Permit Store, exportá el reporte de citaciones como CSV y soltalo acá. Las citaciones se guardan en el Google Sheet compartido.';
     }
     var sub = document.querySelector('.head-txt p');
     if (sub) sub.textContent = 'iParq / The Permit Store · shared across devices';
