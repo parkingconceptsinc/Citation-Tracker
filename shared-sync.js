@@ -221,26 +221,26 @@
     style.id = 'pci-shared-dashboard-style';
     style.textContent =
       '#tbl thead th{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:2px solid var(--line);}' +
-      '#sharedHazardLine{height:3px;width:100%;border-radius:999px;background:var(--surface,#fff);box-shadow:0 0 0 1px var(--blue,#2563eb),0 0 9px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.28)));}' +
-      '#sharedHazardLine[data-busy="1"]{animation:blueGlow 2.4s ease-in-out infinite;}' +
-      '@keyframes blueGlow{0%,100%{box-shadow:0 0 7px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.24)));opacity:.9;}50%{box-shadow:0 0 16px var(--blueGlow,var(--glow-blue,rgba(37,99,235,.42)));opacity:1;}}' +
-      '#sharedRefreshBtn[data-busy="1"]{opacity:.65;cursor:progress;}' +
+      // Same glow the header stripe uses, on the refresh button too — the
+      // family's Dashboard pages do both together (see #reloadBtn.loading
+      // in the Apps Script Dashboard files) so the button reads as busy as
+      // hard as the stripe, not just dimmed.
+      '#sharedRefreshBtn{position:relative;}' +
+      '#sharedRefreshBtn[data-busy="1"]{cursor:progress;pointer-events:none;background:rgba(14,22,59,.92);border-color:rgba(255,255,255,.18);color:#fff;}' +
+      '#sharedRefreshBtn[data-busy="1"]::before{content:"";position:absolute;inset:0;border-radius:inherit;animation:hazardGlowInset 1.2s ease-in-out infinite;}' +
+      '@keyframes hazardGlowInset{0%,100%{opacity:.55;box-shadow:inset 0 0 8px 2px #f2a900,inset 0 0 18px 4px #f2a90055;}50%{opacity:1;box-shadow:inset 0 0 14px 4px #f2a900,inset 0 0 28px 8px #f2a90088;}}' +
       '#sharedRefreshBtn:focus-visible{outline:2px solid var(--blue,#2563eb);outline-offset:3px;}' +
       '#sharedRefreshStamp{font-size:11px;color:var(--ink-soft,var(--ink-faint,#5B6478));white-space:nowrap;}' +
-      '@media(prefers-reduced-motion:reduce){#sharedHazardLine[data-busy="1"]{animation:none !important;}}';
+      '@media(prefers-reduced-motion:reduce){#hazardStripe.moving,#sharedRefreshBtn[data-busy="1"]::before{animation:none !important;}}';
     document.head.appendChild(style);
   }
 
-  function installSharedLine(){
-    if (document.getElementById('sharedHazardLine')) return;
-    var table = document.getElementById('tbl');
-    if (!table || !table.parentNode) return;
-    var line = document.createElement('div');
-    line.id = 'sharedHazardLine';
-    line.dataset.busy = '0';
-    line.setAttribute('aria-hidden','true');
-    table.parentNode.insertBefore(line, table);
-  }
+  // The header's #hazardStripe (index.html) is the one loading indicator
+  // the whole PCI family uses — invisible at rest, glowing while .moving.
+  // This app used to build its own separate one (#sharedHazardLine, above
+  // the table, blue) before anyone noticed the shared convention existed.
+  function stripeOn(){ var el = document.getElementById('hazardStripe'); if (el) el.classList.add('moving'); }
+  function stripeOff(){ var el = document.getElementById('hazardStripe'); if (el) el.classList.remove('moving'); }
 
   function applyColumnOrder(){
     var table = document.getElementById('tbl');
@@ -330,9 +330,8 @@
 
   function setRefreshBusy(busy){
     var btn = document.getElementById('sharedRefreshBtn');
-    var line = document.getElementById('sharedHazardLine');
     if (btn) btn.dataset.busy = busy ? '1' : '0';
-    if (line) line.dataset.busy = busy ? '1' : '0';
+    if (busy) stripeOn(); else stripeOff();
   }
 
   function runSharedRefresh(){
@@ -354,7 +353,6 @@
     }
     return Promise.resolve(work).then(function(){
       applyColumnOrder();
-      installSharedLine();
       updateRefreshStamp();
     }).catch(function(err){
       if (sharedState.source !== 'offline') setSharedState('offline', err);
@@ -396,7 +394,6 @@
     window.render = function(){
       var result = originalRender.apply(this, arguments);
       applyColumnOrder();
-      installSharedLine();
       return result;
     };
   }
@@ -417,7 +414,6 @@
   resetViewState();
   installSharedStyles();
   installRefreshButton();
-  installSharedLine();
   showMode();
   applyColumnOrder();
   updateRefreshStamp();
