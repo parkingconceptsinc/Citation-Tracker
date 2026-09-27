@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v12-title-size-fix";
+const CACHE_NAME = CACHE_PREFIX + "v13-no-forced-reload";
 
 const APP_SHELL = [
   "./",
@@ -15,11 +15,23 @@ const APP_SHELL = [
 ];
 
 self.addEventListener("install", event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
-  );
+  // No skipWaiting(): a new version installs in the background and only
+  // takes over once every open tab/iframe using the old one has closed.
+  // It used to call skipWaiting() and force every open client to reload
+  // immediately (see below) to push a one-time shared-sync migration out
+  // right away. That migration finished weeks ago; what's left of the
+  // mechanism now just means any deploy that changes this file can hit an
+  // already-open Citation Tracker (e.g. embedded in Management's iframe)
+  // mid-load, reported as it either asking to "open in browser" (the
+  // embedding app's own 9s frame-load fallback) or hanging — the forced
+  // client.navigate() below competing with the page's own in-flight load.
+  // Trade-off accepted: a tab/iframe that's never closed across a deploy
+  // stays on the old version until it is (this is the standard, safe
+  // service-worker default everywhere — not an oversight). Closing the
+  // Citation Tracker panel in Management already navigates its iframe to
+  // about:blank, which drops that client, so the common case still
+  // updates the next time it's reopened.
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
 });
 
 self.addEventListener("activate", event => {
@@ -27,17 +39,6 @@ self.addEventListener("activate", event => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
-      .then(clients => Promise.all(clients.map(client => {
-        try {
-          const u = new URL(client.url);
-          const scopePath = new URL(self.registration.scope).pathname;
-          if (u.origin !== self.location.origin || !u.pathname.startsWith(scopePath)) return;
-          if (u.searchParams.get("_pciShared") === "v10") return;
-          u.searchParams.set("_pciShared", "v10");
-          return client.navigate(u.href).catch(() => {});
-        } catch (_) {}
-      })))
   );
 });
 
