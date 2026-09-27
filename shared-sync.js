@@ -239,8 +239,75 @@
   // the whole PCI family uses — invisible at rest, glowing while .moving.
   // This app used to build its own separate one (#sharedHazardLine, above
   // the table, blue) before anyone noticed the shared convention existed.
-  function stripeOn(){ var el = document.getElementById('hazardStripe'); if (el) el.classList.add('moving'); }
-  function stripeOff(){ var el = document.getElementById('hazardStripe'); if (el) el.classList.remove('moving'); }
+  //
+  // Unlike the old one (a permanently-visible ring that just pulsed
+  // brighter when busy), this element is invisible until .moving is
+  // added, so it depends on the class actually getting painted. Without
+  // a session (a direct/standalone open, not from the supervisor
+  // launcher — a common path, not a rare one) jsonp() rejects
+  // synchronously inside its own Promise executor: the whole
+  // stripeOn()/stripeOff() pair around it then runs as microtasks in the
+  // same task, with no paint in between, so the glow never becomes
+  // visible at all. stripeOff() enforces a minimum visible time so a
+  // same-tick (or just very fast) resolution can't erase it before the
+  // browser ever draws it.
+  var STRIPE_MIN_MS = 400;
+  var stripeShownAt = 0;
+  // Matches Patrol/Fuel Dashboard's own stripeOn() (clearTimeout(stripeTimer)
+  // first): cancels a still-pending stripeOffNow() from a previous cycle so
+  // it can't fire later and clear a newer, still-genuinely-loading glow.
+  // Both handles a stripeOff() can leave pending — the rAF request and the
+  // setTimeout it schedules — are cancelled, the same way this codebase's
+  // own label_editor_pro_pwa (src/fabric/useFabric.js) stores an rAF handle
+  // and calls cancelAnimationFrame() before rescheduling.
+  var stripeTimer = null;
+  var stripeRaf = null;
+  function stripeOn(){
+    cancelAnimationFrame(stripeRaf);
+    stripeRaf = null;
+    clearTimeout(stripeTimer);
+    stripeTimer = null;
+    var el = document.getElementById('hazardStripe');
+    if (el) el.classList.add('moving');
+    var btn = document.getElementById('sharedRefreshBtn');
+    if (btn) { btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = 'Refreshing…'; }
+    stripeShownAt = performance.now();
+  }
+  function stripeOff(){
+    cancelAnimationFrame(stripeRaf);
+    clearTimeout(stripeTimer);
+    // requestAnimationFrame never fires in a hidden/backgrounded document
+    // (browsers pause it), so gating on it there would leave the button
+    // stuck disabled/glowing until the tab is foregrounded again — but a
+    // hidden document also isn't painting anything for anyone to see, so
+    // the race this whole guard exists for can't happen either; skip
+    // straight to the real work.
+    if (document.hidden) { stripeOffNow(); return; }
+    // A wall-clock setTimeout alone only makes the original no-paint bug
+    // rare, not impossible: under heavy main-thread contention the event
+    // loop can blow past STRIPE_MIN_MS without ever yielding to render.
+    // requestAnimationFrame runs right before the next real paint, so by
+    // the time this callback fires, the browser has actually rendered at
+    // least once since stripeOn() added .moving — an actual guarantee,
+    // not a probability.
+    stripeRaf = requestAnimationFrame(function(){
+      stripeRaf = null;
+      var wait = STRIPE_MIN_MS - (performance.now() - stripeShownAt);
+      if (wait > 0) { stripeTimer = setTimeout(stripeOffNow, wait); return; }
+      stripeOffNow();
+    });
+  }
+  // Button text/disabled state moved here from runSharedRefresh() so they
+  // clear together with the glow (data-busy) instead of snapping back to
+  // idle immediately while the glow is still being held for its minimum
+  // visible time — a glowing button that already looks re-enabled again
+  // was worse than the original bug.
+  function stripeOffNow(){
+    var el = document.getElementById('hazardStripe');
+    if (el) el.classList.remove('moving');
+    var btn = document.getElementById('sharedRefreshBtn');
+    if (btn) { btn.dataset.busy = '0'; btn.disabled = false; btn.textContent = '↻ Refresh'; }
+  }
 
   function applyColumnOrder(){
     var table = document.getElementById('tbl');
@@ -328,42 +395,61 @@
     }
   }
 
+  // stripeOn()/stripeOff() own #sharedRefreshBtn's data-busy too now (see
+  // above) so its glow shares the same minimum-visible-time guard as the
+  // stripe instead of being cleared out from under it immediately.
   function setRefreshBusy(busy){
-    var btn = document.getElementById('sharedRefreshBtn');
-    if (btn) btn.dataset.busy = busy ? '1' : '0';
     if (busy) stripeOn(); else stripeOff();
   }
 
-  function runSharedRefresh(){
-    var btn = document.getElementById('sharedRefreshBtn');
-    if (btn && btn.dataset.busy === '1') return Promise.resolve();
-    sharedState.source = 'connecting';
-    sharedState.error = '';
+  // Separate from the glow's own on/off state: stripeOff() can hold the
+  // glow visible for STRIPE_MIN_MS after the real work is done, and this
+  // guard must not mistake that cosmetic hold for still being in flight
+  // (it used to read btn.dataset.busy for this, which stayed '1' during
+  // that hold — a real refresh request arriving in that window was
+  // silently dropped instead of running).
+  var refreshInFlight = false;
+  // Shared by both failure paths below (a synchronous throw before any
+  // real work starts, and a rejection from the real async work) so they
+  // can't quietly diverge from each other over time.
+  function failRefresh(err){
+    if (sharedState.source !== 'offline') setSharedState('offline', err);
     updateRefreshStamp();
-    setRefreshBusy(true);
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Refreshing…';
-    }
+  }
+  function runSharedRefresh(){
+    if (refreshInFlight) return Promise.resolve();
+    refreshInFlight = true;
+    // Everything from here down that can throw synchronously (not just
+    // window.refresh(), already guarded below) is wrapped so a failure
+    // resets refreshInFlight instead of latching it true forever — the
+    // whole point of a re-entrancy flag disappears if there's a path
+    // that sets it without a matching path to clear it.
     var work;
     try {
-      work = typeof window.refresh === 'function' ? window.refresh() : Promise.resolve();
+      sharedState.source = 'connecting';
+      sharedState.error = '';
+      updateRefreshStamp();
+      setRefreshBusy(true);
+      try {
+        work = typeof window.refresh === 'function' ? window.refresh() : Promise.resolve();
+      } catch (err) {
+        work = Promise.reject(err);
+      }
     } catch (err) {
-      work = Promise.reject(err);
+      refreshInFlight = false;
+      failRefresh(err);
+      setRefreshBusy(false);
+      return Promise.reject(err);
     }
     return Promise.resolve(work).then(function(){
       applyColumnOrder();
       updateRefreshStamp();
     }).catch(function(err){
-      if (sharedState.source !== 'offline') setSharedState('offline', err);
-      updateRefreshStamp();
+      failRefresh(err);
       throw err;
     }).finally(function(){
+      refreshInFlight = false;
       setRefreshBusy(false);
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '↻ Refresh';
-      }
     });
   }
 
