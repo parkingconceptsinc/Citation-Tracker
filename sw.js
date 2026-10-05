@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v13-no-forced-reload";
+const CACHE_NAME = CACHE_PREFIX + "v14-offline-fallback";
 
 const APP_SHELL = [
   "./",
@@ -31,7 +31,17 @@ self.addEventListener("install", event => {
   // Citation Tracker panel in Management already navigates its iframe to
   // about:blank, which drops that client, so the common case still
   // updates the next time it's reopened.
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)));
+  // cache.addAll() is all-or-nothing: one entry that 404s or times out
+  // rejects the whole install, the worker never activates, and the app is
+  // left with no offline cache at all. Cache each entry on its own so a
+  // single failure costs only that entry.
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => Promise.all(
+      APP_SHELL.map(path => cache.add(path).catch(err => {
+        console.warn("[Citation Tracker SW] could not precache", path, err);
+      }))
+    ))
+  );
 });
 
 self.addEventListener("activate", event => {
@@ -41,6 +51,40 @@ self.addEventListener("activate", event => {
       .then(() => self.clients.claim())
   );
 });
+
+// Both the network and the cache can come up empty on a navigation: the cache
+// was evicted, it is a first visit on a dead connection, or a private window.
+// That used to reach respondWith() as undefined, which the browser reports as
+// "FetchEvent resulted in a network error" and paints as a blank page -
+// indistinguishable from the app itself being broken. Say what happened.
+function offlineFallbackResponse() {
+  const html = [
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "<title>Citation Tracker</title><style>",
+    ":root{color-scheme:light dark}",
+    "body{margin:0;min-height:100vh;display:flex;align-items:center;",
+    "justify-content:center;padding:16px;background:#F5F6F9;color:#10233F;",
+    "font:500 15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}",
+    "@media(prefers-color-scheme:dark){body{background:#0E163B;color:#fff}}",
+    "div{max-width:22rem;text-align:center}",
+    "h1{margin:0 0 .5rem;font-size:19px}",
+    "p{margin:0;opacity:.75}",
+    "</style></head><body><div>",
+    "<h1>Citation Tracker is offline</h1>",
+    "<p>No connection, and this device has no cached copy of the app yet. ",
+    "Reconnect and reload.</p>",
+    "</div></body></html>"
+  ].join("");
+  return new Response(html, {
+    status: 503,
+    statusText: "Offline",
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store, max-age=0"
+    }
+  });
+}
 
 function injectSharedBoot(response) {
   if (!response) return response;
@@ -80,7 +124,7 @@ self.addEventListener("fetch", event => {
     event.respondWith(
       fetch(request, { cache: "no-store" })
         .catch(() => caches.match("./index.html"))
-        .then(response => injectSharedBoot(response))
+        .then(response => response ? injectSharedBoot(response) : offlineFallbackResponse())
     );
     return;
   }
