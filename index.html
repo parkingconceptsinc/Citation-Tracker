@@ -160,6 +160,13 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
   padding:26px 18px;color:var(--ink-soft);font-size:13px;transition:border-color .2s ease,background .2s ease}
 .dropzone.drag{border-color:var(--blue);background:var(--blue-wash);color:var(--ink)}
 .dropzone strong{color:var(--blue)}
+.dropzone[aria-disabled="true"]{opacity:.55;pointer-events:none}
+#bootView{display:flex;flex-direction:column;align-items:center;gap:14px;padding:46px 24px;
+  color:var(--ink-soft);font-size:13.5px;text-align:center}
+.boot-bar{width:min(240px,70%);height:4px;border-radius:999px;background:var(--tint);overflow:hidden;position:relative}
+.boot-bar::after{content:"";position:absolute;inset:0;width:40%;border-radius:inherit;background:var(--blue);
+  animation:bootSlide 1.1s ease-in-out infinite}
+@keyframes bootSlide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
 
 /* ---- buttons ---- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
@@ -261,7 +268,8 @@ tr:hover td{background:var(--surface-2)}
 /* ---- toast ---- */
 .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,80px);z-index:120;
   background:linear-gradient(110deg,#10233f,#263e63);color:#fff;border:1px solid rgba(255,255,255,.14);
-  padding:11px 18px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap;
+  padding:11px 18px;border-radius:999px;font-size:12.5px;font-weight:600;
+  max-width:calc(100vw - 32px);width:max-content;text-align:center;
   box-shadow:0 16px 35px rgba(8,21,42,.32);transition:transform .3s var(--ease);pointer-events:none}
 .toast.show{transform:translate(-50%,0)}
 
@@ -324,8 +332,15 @@ tr:hover td{background:var(--surface-2)}
   <div class="status-region" id="appStatus" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
   <main id="main-content" aria-labelledby="app-title">
+  <!-- FIRST LOAD: shown until the first read answers, so the empty
+       "import a CSV" card never flashes while citations are still loading. -->
+  <section class="card" id="bootView" role="status">
+    <div class="boot-bar" aria-hidden="true"></div>
+    <p data-i18n="loadingData">Loading citation data…</p>
+  </section>
+
   <!-- EMPTY STATE -->
-  <section class="card" id="emptyView">
+  <section class="card" id="emptyView" hidden>
     <div class="big-icon"><svg><use href="#i-ticket"></use></svg></div>
     <h2 data-i18n="emptyTitle">No citations imported yet</h2>
     <p data-i18n="emptyBody">In The Permit Store admin, export your citations report as CSV, then drop the file here. Everything stays in this browser.</p>
@@ -515,6 +530,11 @@ var I18N = {
     online:"Online", offline:"Offline", themeLight:"Switch to light mode", themeDark:"Switch to dark mode",
     loadingData:"Loading citation data…", loadFailed:"Citation data could not be refreshed.",
     tImporting:"Reading file…",
+    tSaving:"Saving {total} citations to the shared sheet…",
+    tSavingPart:"Saving to the shared sheet… {done} of {total}",
+    tVerifying:"Checking the shared sheet…",
+    tImportBusy:"An import is still being saved",
+    tSavingBtn:"Saving…",
     tImported:"Imported {added} new, updated {updated}",
     tNeedCols:"Pick a column for Citation # and Issue date",
     tBadFile:"Could not read that file as CSV",
@@ -877,6 +897,7 @@ function syncRangeButtons(){
 /* ---------------- import flow ---------------- */
 function handleFile(file, trigger){
   if(!file) return;
+  if(importing){ toast(t("tImportBusy")); return; }
   // Parsing is synchronous and can take a beat on a big export — say so
   // immediately, then let that paint before the parse loop runs.
   var big = file.size > 300*1024;
@@ -1007,14 +1028,36 @@ function commitImport(built){
   var existing = {}; ALL.forEach(function(r){ existing[r.id]=true; });
   var added = incoming.filter(function(r){ return !existing[r.id]; }).length;
   var updated = incoming.length - added;
-  idbBulkPut(incoming).then(function(){
+  // Saving to the shared Sheet takes several seconds. Until it is done the
+  // import controls stay disabled, so a second click can't send it twice.
+  setImportBusy(true);
+  setStatus(t("tSaving",{total:incoming.length.toLocaleString()}));
+  idbBulkPut(incoming, function(done, total, phase){
+    setStatus(phase === "verifying" ? t("tVerifying")
+      : t("tSavingPart",{done:done.toLocaleString(), total:total.toLocaleString()}));
+  }).then(function(){
     LS.set("cit-lastImport", { when:new Date().toISOString(), n:incoming.length });
+    setImportBusy(false);
     closeModal($("mapModal"));
     pendingImport = null;
     return refresh();
   }).then(function(){
     toast(t("tImported",{added:added, updated:updated}));
-  }).catch(function(e){ toast(String(e && e.message || e)); });
+  }).catch(function(e){
+    setStatus("");
+    toast(String(e && e.message || e));
+  }).then(function(){ setImportBusy(false); });
+}
+var importing = false;
+function setImportBusy(on){
+  importing = on;
+  var apply = $("mapApply");
+  apply.disabled = on;
+  apply.textContent = on ? t("tSavingBtn") : t("mapApply");
+  $("importMoreBtn").disabled = on;
+  $("mImport").disabled = on;
+  $("dropzone").setAttribute("aria-disabled", on ? "true" : "false");
+  $("hazardStripe").classList.toggle("moving", on);
 }
 
 /* ---------------- aggregation + render ---------------- */
@@ -1169,10 +1212,12 @@ function render(){
   });
 }
 function refresh(){
-  setStatus(t("loadingData"));
+  // The first load already shows the loading card; don't say it twice.
+  if($("bootView").hidden) setStatus(t("loadingData"));
   return idbAll().then(function(list){
     ALL = list;
     var has = ALL.length>0;
+    $("bootView").hidden = true;
     $("emptyView").hidden = has;
     $("dashView").hidden = !has;
     if(has){ refreshFilterOptions(); render(); }
@@ -1180,6 +1225,7 @@ function refresh(){
     updateLastImport();
     setStatus("");
   }).catch(function(e){
+    if(!$("bootView").hidden){ $("bootView").hidden = true; $("emptyView").hidden = false; }
     setStatus(t("loadFailed"));
     throw e;
   });

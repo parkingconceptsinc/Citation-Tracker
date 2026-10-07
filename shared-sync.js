@@ -38,6 +38,35 @@
   var originalCommitImport = window.commitImport;
   var sharedState = { source:'loading', error:'', lastSync:null };
 
+  // Apps Script cold starts plus a full Sheet read can take well over 15s;
+  // timing out earlier labelled a slow-but-working read as "Offline Cache".
+  var READ_TIMEOUT_MS = 45000;
+  // Apps Script rejects more than 5000 records per call (Code.gs
+  // MAX_RECORDS_PER_IMPORT); bigger CSVs are sent in several calls.
+  var IMPORT_CHUNK = 2000;
+
+  // The offline copy is only shown before the server answers when it was
+  // saved under this same supervisor session. The key stores a hash of the
+  // session, never the session itself.
+  var CACHE_OWNER_KEY = 'pci-citation-cache-owner';
+  function sessionFingerprint(){
+    if (!sessionToken || !window.crypto || !crypto.subtle || !window.TextEncoder) return Promise.resolve('');
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode('pci-citation:' + sessionToken)).then(function(buf){
+      return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
+    }).catch(function(){ return ''; });
+  }
+  function setCacheOwner(on){
+    if (!on) { try { localStorage.removeItem(CACHE_OWNER_KEY); } catch (_) {} return Promise.resolve(); }
+    return sessionFingerprint().then(function(fp){
+      try { if (fp) localStorage.setItem(CACHE_OWNER_KEY, fp); } catch (_) {}
+    });
+  }
+
+  // Records already read from the server that the next idbAll() can use
+  // instead of reading the whole Sheet again (after an import's verify read,
+  // or the saved copy shown at boot).
+  var nextRead = null;
+
   // Remove the obsolete per-browser endpoint override. Management and
   // Supervisor must never be able to point at different Citation APIs.
   try { localStorage.removeItem('pci-citation-api-url'); } catch (_) {}
@@ -68,7 +97,13 @@
       }).join('&');
       s.src = API_URL + '?' + q;
       s.onerror = function(){ cleanup(); reject(new Error('Could not reach shared Citation API')); };
-      timer = setTimeout(function(){ cleanup(); reject(new Error('Shared Citation API timed out')); }, 15000);
+      timer = setTimeout(function(){
+        cleanup();
+        // A response that still arrives later must not throw "callback is
+        // not defined" into the page.
+        window[cb] = function(){ try { delete window[cb]; } catch (_) {} };
+        reject(new Error('Shared Citation API timed out'));
+      }, READ_TIMEOUT_MS);
       document.head.appendChild(s);
     });
   }
@@ -82,6 +117,10 @@
       cache:'no-store',
       headers:{ 'Content-Type':'text/plain;charset=UTF-8' },
       body:JSON.stringify(payload)
+    }).catch(function(){
+      // The browser only says "Failed to fetch". Importing again is safe:
+      // citations are upserted by number, never duplicated.
+      throw new Error('Couldn\u2019t reach the shared sheet. Try again.');
     });
   }
 
@@ -107,6 +146,8 @@
     if (!localClear || !localPut) return Promise.resolve();
     return localClear().then(function(){
       return records.length ? localPut(records) : undefined;
+    }).then(function(){
+      return setCacheOwner(records.length > 0);
     }).catch(function(err){
       console.warn('[Citation Tracker] offline cache update failed', err);
     });
@@ -122,6 +163,11 @@
   // but the UI explicitly labels it as Offline cache instead of claiming
   // that a shared refresh succeeded.
   window.idbAll = function(){
+    if (nextRead) {
+      var ready = nextRead;
+      nextRead = null;
+      if (Date.now() - ready.at < 15000) return Promise.resolve(ready.records);
+    }
     return jsonp({action:'list'}).then(function(data){
       var records = Array.isArray(data.records) ? data.records : [];
       setSharedState('shared');
@@ -131,6 +177,7 @@
       if (err && err.code === 'unauthorized') {
         // No session: show nothing and drop this device's copy of the data.
         setSharedState('unauthorized', err);
+        setCacheOwner(false);
         if (localClear) localClear().catch(function(){});
         return [];
       }
@@ -142,15 +189,30 @@
 
   // POST is no-cors because of Apps Script. Verify every write with a
   // subsequent readable list response before treating the import as saved.
-  window.idbBulkPut = function(records){
+  // onProgress(done, total, phase) is optional; phase is 'saving' or 'verifying'.
+  window.idbBulkPut = function(records, onProgress){
     records = (Array.isArray(records) ? records : []).map(normalizeForWrite);
     if (!records.length) return Promise.resolve();
+    var progress = typeof onProgress === 'function' ? onProgress : function(){};
     var expected = {};
     records.forEach(function(r){
       var k = String(r.citationNo || r.id || '').trim();
       if (k) expected[k] = true;
     });
-    return post({action:'upsert', records:records}).then(function(){
+    var sent = 0;
+    var chain = Promise.resolve();
+    for (var i = 0; i < records.length; i += IMPORT_CHUNK) {
+      (function(chunk){
+        chain = chain.then(function(){
+          return post({action:'upsert', records:chunk});
+        }).then(function(){
+          sent += chunk.length;
+          if (sent < records.length) progress(sent, records.length, 'saving');
+        });
+      })(records.slice(i, i + IMPORT_CHUNK));
+    }
+    return chain.then(function(){
+      progress(sent, records.length, 'verifying');
       return jsonp({action:'list'});
     }).then(function(data){
       var server = Array.isArray(data.records) ? data.records : [];
@@ -159,6 +221,9 @@
       var missing = Object.keys(expected).filter(function(k){ return !seen[k]; });
       if (missing.length) throw new Error('Shared write could not be verified for ' + missing.length + ' citation(s)');
       setSharedState('shared');
+      // The page refreshes right after an import; this verify read already
+      // is the whole Sheet, so that refresh doesn't need to read it again.
+      nextRead = { records:server, at:Date.now() };
       return cacheShared(server);
     }).catch(function(err){
       setSharedState(err && err.code === 'unauthorized' ? 'unauthorized' : 'offline', err);
@@ -379,8 +444,11 @@
       stamp.textContent = 'Loading shared citations…';
       stamp.title = 'Loading the shared Google Sheet';
     } else if (sharedState.source === 'connecting') {
-      stamp.textContent = 'Connecting to shared citations…';
+      stamp.textContent = sharedState.showingCache ? 'Saved copy · checking for updates…' : 'Connecting to shared citations…';
       stamp.title = 'Connecting to the shared Google Sheet';
+    } else if (sharedState.source === 'cached') {
+      stamp.textContent = 'Saved copy · checking for updates…';
+      stamp.title = 'Showing this device’s last copy while the shared Google Sheet loads';
     } else if (sharedState.source === 'shared') {
       stamp.textContent = 'Shared · Updated ' + when;
       stamp.title = 'Loaded from the shared Google Sheet';
@@ -510,11 +578,61 @@
   // refresh. Repeated runtime injection cannot start another one.
   var sharedBootPending = window.__PCI_SHARED_BOOT_PENDING__ === true;
   if (sharedBootPending) window.__PCI_SHARED_BOOT_PENDING__ = false;
-  if (!window.__PCI_SHARED_BOOT_STARTED__) {
-    window.__PCI_SHARED_BOOT_STARTED__ = true;
+
+  // Same session as the last successful read: show that saved copy right
+  // away and replace it when the server answers. A different or missing
+  // session waits for the server, as before.
+  function showSavedCopy(){
+    if (!sessionToken || !localAll) return Promise.resolve(false);
+    var owner = '';
+    try { owner = localStorage.getItem(CACHE_OWNER_KEY) || ''; } catch (_) {}
+    if (!owner) return Promise.resolve(false);
+    return sessionFingerprint().then(function(fp){
+      if (!fp || fp !== owner) return false;
+      return localAll().then(function(list){
+        if (!list || !list.length || sharedState.source !== 'loading') return false;
+        nextRead = { records:list, at:Date.now() };
+        sharedState.source = 'cached';
+        sharedState.showingCache = true;
+        return Promise.resolve(window.refresh()).then(function(){
+          applyColumnOrder();
+          updateRefreshStamp();
+          return true;
+        });
+      });
+    }).catch(function(err){
+      nextRead = null;
+      console.warn('[Citation Tracker] saved copy unavailable', err);
+      return false;
+    });
+  }
+
+  function bootRefresh(){
     runSharedRefresh().catch(function(err){
       console.error('[Citation Tracker] shared refresh failed', err);
       updateRefreshStamp();
-    });
+    }).then(function(){ sharedState.showingCache = false; updateRefreshStamp(); });
+  }
+
+  if (!window.__PCI_SHARED_BOOT_STARTED__) {
+    window.__PCI_SHARED_BOOT_STARTED__ = true;
+    // The read is a <script> request, and a script added before the page's
+    // load event holds that event back until the Sheet answers. The
+    // Supervisor launcher keeps its loading cover up until this frame's load
+    // event and gives up after 9s with "Open in browser instead", so the read
+    // starts once the page has loaded (or after 3s at the latest).
+    // The saved copy is local (IndexedDB) and can show immediately.
+    var savedCopy = showSavedCopy();
+    var started = false;
+    var startRead = function(){
+      if (started) return;
+      started = true;
+      savedCopy.then(bootRefresh, bootRefresh);
+    };
+    if (document.readyState === 'complete') startRead();
+    else {
+      window.addEventListener('load', function(){ setTimeout(startRead, 0); }, {once:true});
+      setTimeout(startRead, 3000);
+    }
   }
 })();
