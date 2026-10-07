@@ -95,21 +95,29 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 .head-txt h1{font-family:'Fraunces',serif;font-weight:600;font-size:19px;letter-spacing:0.01em}
 .head-txt p{margin-top:2px;font-size:12px;color:var(--ink-soft)}
 .head-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;order:2;margin-left:auto}
-/* Loading line under the header, matching Patrol/Fuel/Vehicle Dashboard's
-   pattern: invisible at rest, glows amber only while data is actually
-   loading (.moving). This app already had its own separate loading glow
-   — #sharedHazardLine, above the table, in blue — built before anyone
-   noticed the Dashboard convention existed; that one is being retired in
-   shared-sync.js in favor of this element, which every Dashboard uses.
+/* Loading line under the header (#hazardStripe), the app's one loading
+   indicator. Invisible at rest. While data loads (.moving, from
+   shared-sync.js) or an import saves (.importing) it works as a loading
+   bar: an amber glow runs along it. During an import it also fills with
+   the share of rows saved (--stripe-progress, 0 to 1).
    order:4 keeps it last regardless of the img/head-txt/head-actions
    reordering above (1/2/3 on phone, 0/0/0 from 560px up). */
-.stripe{flex:1 1 100%;order:4;height:4px;margin-top:10px;border-radius:999px;
-  background:#fff;opacity:0;box-shadow:none;transition:opacity .2s ease,box-shadow .2s ease}
-.stripe.moving{opacity:1;animation:hazardGlow 1.2s ease-in-out infinite}
-@keyframes hazardGlow{
-  0%,100%{opacity:.55;box-shadow:0 0 8px 2px #f2a900,0 0 18px 4px #f2a90055}
-  50%{opacity:1;box-shadow:0 0 14px 4px #f2a900,0 0 28px 8px #f2a90088}
-}
+.stripe{position:relative;flex:1 1 100%;order:4;height:4px;margin-top:10px;border-radius:999px;
+  background:rgba(242,169,0,.16);opacity:0;transition:opacity .2s ease;
+  /* Hides the running glow past the ends of the line but not above/below it. */
+  clip-path:inset(-30px 0 -30px 0)}
+.stripe.moving,.stripe.importing{opacity:1}
+.stripe.moving::after,.stripe.importing::after{content:"";position:absolute;top:0;bottom:0;left:0;width:35%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,rgba(242,169,0,0),#f2a900 28%,#fff6dc 50%,#f2a900 72%,rgba(242,169,0,0));
+  filter:drop-shadow(0 0 4px #f2a900) drop-shadow(0 0 10px rgba(242,169,0,.65));
+  animation:stripeRun 1.4s cubic-bezier(.45,0,.25,1) infinite}
+/* From fully left of the line to fully right of it (35% wide: 100/35 = 2.86). */
+@keyframes stripeRun{from{transform:translateX(-100%)}to{transform:translateX(286%)}}
+.stripe.importing::before{content:"";position:absolute;top:0;bottom:0;left:0;
+  width:calc(var(--stripe-progress,0) * 100%);border-radius:inherit;background:#f2a900;
+  filter:drop-shadow(0 0 4px #f2a900) drop-shadow(0 0 10px rgba(242,169,0,.55));
+  transition:width .5s var(--ease)}
 @media (min-width:560px){
   .topbar > img{height:76px;order:0}
   .head-txt{flex:1 1 auto;order:0}
@@ -161,12 +169,8 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 .dropzone.drag{border-color:var(--blue);background:var(--blue-wash);color:var(--ink)}
 .dropzone strong{color:var(--blue)}
 .dropzone[aria-disabled="true"]{opacity:.55;pointer-events:none}
-#bootView{display:flex;flex-direction:column;align-items:center;gap:14px;padding:46px 24px;
+#bootView{display:flex;flex-direction:column;align-items:center;padding:46px 24px;
   color:var(--ink-soft);font-size:13.5px;text-align:center}
-.boot-bar{width:min(240px,70%);height:4px;border-radius:999px;background:var(--tint);overflow:hidden;position:relative}
-.boot-bar::after{content:"";position:absolute;inset:0;width:40%;border-radius:inherit;background:var(--blue);
-  animation:bootSlide 1.1s ease-in-out infinite}
-@keyframes bootSlide{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
 
 /* ---- buttons ---- */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
@@ -282,6 +286,8 @@ tr:hover td{background:var(--surface-2)}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  /* No running glow: the whole line glows steadily while loading. */
+  .stripe.moving::after,.stripe.importing::after{animation:none!important;transform:none;width:100%}
 }
 </style>
 </head>
@@ -322,7 +328,7 @@ tr:hover td{background:var(--surface-2)}
       <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch to dark mode" aria-pressed="false"><svg id="themeIcon"><use href="#i-moon"></use></svg></button>
       <button type="button" class="icon-btn" id="manageBtn" data-i18n-aria="manageData" aria-label="Manage citation data" title="Manage citation data"><svg><use href="#i-cog"></use></svg></button>
     </div>
-    <div class="stripe" id="hazardStripe" aria-hidden="true"></div>
+    <div class="stripe moving" id="hazardStripe" aria-hidden="true"></div>
   </header>
   <div class="meta" style="align-self:flex-end;margin-top:-10px">
     <span><span class="dot" id="netDot"></span><span id="netText">Online</span></span>
@@ -335,7 +341,6 @@ tr:hover td{background:var(--surface-2)}
   <!-- FIRST LOAD: shown until the first read answers, so the empty
        "import a CSV" card never flashes while citations are still loading. -->
   <section class="card" id="bootView" role="status">
-    <div class="boot-bar" aria-hidden="true"></div>
     <p data-i18n="loadingData">Loading citation data…</p>
   </section>
 
@@ -1033,6 +1038,7 @@ function commitImport(built){
   setImportBusy(true);
   setStatus(t("tSaving",{total:incoming.length.toLocaleString()}));
   idbBulkPut(incoming, function(done, total, phase){
+    setImportProgress(phase === "verifying" ? 1 : done/total);
     setStatus(phase === "verifying" ? t("tVerifying")
       : t("tSavingPart",{done:done.toLocaleString(), total:total.toLocaleString()}));
   }).then(function(){
@@ -1057,7 +1063,15 @@ function setImportBusy(on){
   $("importMoreBtn").disabled = on;
   $("mImport").disabled = on;
   $("dropzone").setAttribute("aria-disabled", on ? "true" : "false");
-  $("hazardStripe").classList.toggle("moving", on);
+  // Its own class, not .moving: shared-sync.js turns .moving off when a
+  // refresh ends, which must not stop the line during an import.
+  var stripe = $("hazardStripe");
+  stripe.classList.toggle("importing", on);
+  if(!on) stripe.style.removeProperty("--stripe-progress");
+}
+// Fills the loading line with the share of rows saved (0 to 1).
+function setImportProgress(fraction){
+  $("hazardStripe").style.setProperty("--stripe-progress", String(Math.max(0, Math.min(1, fraction))));
 }
 
 /* ---------------- aggregation + render ---------------- */
