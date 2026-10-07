@@ -10,7 +10,11 @@ const ENV = 'ACTPROD';
 
 // Same Supervisor Auth deployment the launchers log in against.
 const SUPERVISOR_AUTH_URL = 'https://script.google.com/macros/s/AKfycbxCdFcQGvTDMI34rrJu8HJXr3heRP_CGOr4nTGPePBEIm76_tOavEZaQkFr_z0poxk55Q/exec';
-const SESSION_CACHE_SECONDS = 60;
+// A verified session is remembered for 10 minutes. Each check otherwise
+// costs two calls to Supervisor Auth (about 1-2s) on every open and import.
+const SESSION_CACHE_SECONDS = 600;
+// More separate runs of changed rows than this are written as one block.
+const MAX_WRITE_RUNS = 25;
 const MAX_RECORDS_PER_IMPORT = 5000;
 
 function doGet(e) {
@@ -58,7 +62,7 @@ function doPost(e) {
 /* ---------------- Supervisor session ----------------
    The launcher passes its Supervisor Auth session token. It is checked with
    Supervisor Auth's own "verify" action and the positive answer is cached
-   for a minute (keyed by a hash, never by the token itself).
+   for SESSION_CACHE_SECONDS (keyed by a hash, never by the token itself).
    Returns {ok, code}; the code is a safe diagnostic (never the token). */
 function sessionCheck_(token) {
   const value = String(token || '');
@@ -160,7 +164,7 @@ function normalizeClock_(value) {
   return String(m[1]).padStart(2, '0') + ':' + m[2] + ':' + (m[3] || '00');
 }
 
-function issueParts_(value) {
+function issueParts_(value, tz) {
   const s = String(value || '').trim();
   // Google Sheets can display 07:46:50 as 7:46:50. Accept one- or two-digit
   // hours and normalize back to HH:mm:ss.
@@ -168,7 +172,7 @@ function issueParts_(value) {
   if (m) return { date: m[1], time: normalizeClock_(m[2] || '') };
   const d = new Date(s);
   if (isNaN(d.getTime())) return { date: '', time: '' };
-  const tz = Session.getScriptTimeZone() || 'America/Los_Angeles';
+  tz = tz || Session.getScriptTimeZone() || 'America/Los_Angeles';
   return {
     date: Utilities.formatDate(d, tz, 'yyyy-MM-dd'),
     time: Utilities.formatDate(d, tz, 'HH:mm:ss')
@@ -202,13 +206,15 @@ function listCitations_() {
   const idx = index_(headers);
   if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
   const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
-  return values.map(function (row) { return normalizeRow_(row, idx); }).filter(Boolean);
+  // Looked up once, not once per row.
+  const tz = Session.getScriptTimeZone() || 'America/Los_Angeles';
+  return values.map(function (row) { return normalizeRow_(row, idx, tz); }).filter(Boolean);
 }
 
-function normalizeRow_(row, idx) {
+function normalizeRow_(row, idx, tz) {
   const citationNo = unescapeText_(cell_(row, idx, 'Citation Number'));
   if (!citationNo) return null;
-  const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'));
+  const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'), tz);
   const plateParts = splitPlate_(cell_(row, idx, 'License Plate'));
   const due = money_(cell_(row, idx, 'Original Amount Due'));
   const paid = money_(cell_(row, idx, 'Amount Paid'));
@@ -249,8 +255,9 @@ function unescapeText_(value) {
 /* Upsert by Citation Number.
    - Only the fields present in the record are written, so importing a CSV
      that lacks a column (e.g. Status) never blanks existing values.
-   - Only changed or new rows are written: updated rows in contiguous runs,
-     new rows appended in one block. The rest of the sheet is untouched.
+   - Only changed or new rows are written: updated rows in contiguous runs
+     (one block when there are many runs), new rows appended in one block.
+     Re-importing rows that are already up to date writes nothing.
    - Every row that repeats the same Citation Number is updated. */
 function upsertCitations_(records) {
   return withLock_(function () {
@@ -261,6 +268,7 @@ function upsertCitations_(records) {
 
     const rowCount = Math.max(0, sh.getLastRow() - 1);
     const rows = rowCount ? sh.getRange(2, 1, rowCount, headers.length).getValues() : [];
+    const tz = sh.getParent().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
     const positions = {};
     rows.forEach(function (row, i) {
       const key = unescapeText_(String(row[idx[KEY_HEADER]] == null ? '' : row[idx[KEY_HEADER]]).trim());
@@ -286,9 +294,13 @@ function upsertCitations_(records) {
         updated++;
       }
       targets.forEach(function (pos) {
-        const row = pos < rows.length ? rows[pos] : appended[pos - rows.length];
-        applyRecord_(row, idx, key, rec);
-        if (pos < rows.length) touched[pos] = true;
+        if (pos >= rows.length) {
+          applyRecord_(appended[pos - rows.length], idx, key, rec);
+          return;
+        }
+        const before = rows[pos].slice();
+        applyRecord_(rows[pos], idx, key, rec);
+        if (rowChanged_(before, rows[pos], tz)) touched[pos] = true;
       });
     });
 
@@ -299,16 +311,54 @@ function upsertCitations_(records) {
       return row.map(function (v) { return typeof v === 'string' ? sheetText_(v) : v; });
     };
     const changed = Object.keys(touched).map(Number).sort(function (a, b) { return a - b; });
+    const runs = [];
     for (let i = 0; i < changed.length;) {
       let j = i;
       while (j + 1 < changed.length && changed[j + 1] === changed[j] + 1) j++;
-      sh.getRange(changed[i] + 2, 1, j - i + 1, headers.length).setValues(rows.slice(changed[i], changed[j] + 1).map(protectRow));
+      runs.push([changed[i], changed[j]]);
       i = j + 1;
     }
+    // Every setValues() call costs a round trip; hundreds of scattered
+    // updates used to take minutes. Past MAX_WRITE_RUNS the span from the
+    // first to the last changed row is written in one call (unchanged rows in
+    // it are written back with the values just read).
+    if (runs.length > MAX_WRITE_RUNS) runs.splice(0, runs.length, [changed[0], changed[changed.length - 1]]);
+    runs.forEach(function (run) {
+      sh.getRange(run[0] + 2, 1, run[1] - run[0] + 1, headers.length).setValues(rows.slice(run[0], run[1] + 1).map(protectRow));
+    });
     if (appended.length) sh.getRange(rows.length + 2, 1, appended.length, headers.length).setValues(appended);
     if (changed.length || appended.length) SpreadsheetApp.flush();
     return { added: added, updated: updated, total: rows.length + appended.length };
   });
+}
+
+/* True when applyRecord_ changed something the Sheet would store
+   differently. Sheets keeps "2026-10-07 07:46:50" as a date-time value and
+   shows text without its protecting apostrophe, so both are compared the way
+   the Sheet holds them. When unsure it reports a change (the row is written,
+   as before). */
+function rowChanged_(before, after, tz) {
+  for (let i = 0; i < after.length; i++) {
+    if (!sameCell_(before[i], after[i], tz)) return true;
+  }
+  return false;
+}
+
+function sameCell_(oldValue, newValue, tz) {
+  if (oldValue === newValue) return true;
+  if (newValue === '' || newValue == null) return oldValue === '' || oldValue == null;
+  if (typeof newValue === 'number') {
+    return typeof oldValue === 'number' && Math.abs(oldValue - newValue) < 1e-9;
+  }
+  const text = unescapeText_(String(newValue));
+  // Sheets stores number-like text (e.g. a numeric citation number) as a number.
+  if (typeof oldValue === 'number') return String(oldValue) === text;
+  if (Object.prototype.toString.call(oldValue) === '[object Date]') {
+    if (isNaN(oldValue.getTime())) return false;
+    return Utilities.formatDate(oldValue, tz, 'yyyy-MM-dd HH:mm:ss') === text ||
+      Utilities.formatDate(oldValue, tz, 'yyyy-MM-dd') === text;
+  }
+  return typeof oldValue === 'string' && oldValue === text;
 }
 
 function has_(rec, field) {
