@@ -1,5 +1,9 @@
 const CACHE_PREFIX = "pci-citation-tracker-";
-const CACHE_NAME = CACHE_PREFIX + "v14-offline-fallback";
+const CACHE_NAME = CACHE_PREFIX + "v15-fast-open";
+// On a weak connection a request can hang far longer than a real failure.
+// After this long the last saved copy is used and the network answer still
+// updates the cache for next time.
+const NETWORK_TIMEOUT_MS = 4000;
 
 const APP_SHELL = [
   "./",
@@ -113,6 +117,38 @@ function injectSharedBoot(response) {
   });
 }
 
+// Network first, but no longer than NETWORK_TIMEOUT_MS when a saved copy
+// exists. Every good network answer replaces the saved copy, so the
+// fallback is the latest version this device has seen (navigations used to
+// fall back to the copy saved when the worker was installed).
+function networkFirst(event, request, cacheKey) {
+  let settleUpdate;
+  event.waitUntil(new Promise(resolve => { settleUpdate = resolve; }));
+  const network = fetch(request, { cache: "no-store" }).then(response => {
+    if (response && response.ok && response.type === "basic") {
+      // Saved as a new Response so the copy doesn't keep the request URL: a
+      // navigation from the launcher carries the session in ?token=.
+      const copy = response.clone();
+      const saved = new Response(copy.body, { status: copy.status, statusText: copy.statusText, headers: copy.headers });
+      settleUpdate(caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, saved)).catch(() => {}));
+    } else {
+      settleUpdate();
+    }
+    return response;
+  }, err => {
+    settleUpdate();
+    throw err;
+  });
+  return caches.match(cacheKey).then(cached => {
+    if (!cached) return network.catch(() => null);
+    const timeout = new Promise(resolve => setTimeout(() => resolve(cached), NETWORK_TIMEOUT_MS));
+    return Promise.race([
+      network.then(response => (response && response.ok ? response : cached), () => cached),
+      timeout
+    ]);
+  });
+}
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -122,24 +158,16 @@ self.addEventListener("fetch", event => {
   const isNavigation = request.mode === "navigate" || /\/(?:index\.html)?$/.test(url.pathname);
   if (isNavigation) {
     event.respondWith(
-      fetch(request, { cache: "no-store" })
-        .catch(() => caches.match("./index.html"))
+      networkFirst(event, request, "./index.html")
         .then(response => response ? injectSharedBoot(response) : offlineFallbackResponse())
     );
     return;
   }
 
   // Critical shared runtime files are network-first and fall back to the
-  // current versioned cache only when offline.
+  // current versioned cache when offline or slow.
   if (/\/(?:shared-sync|shared-ui)\.js$/.test(url.pathname)) {
-    event.respondWith(
-      fetch(request, { cache: "no-store" }).then(response => {
-        if (!response || !response.ok) throw new Error("shared runtime fetch failed");
-        const copy = response.clone();
-        event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.put(request, copy)).catch(() => {}));
-        return response;
-      }).catch(() => caches.match(request))
-    );
+    event.respondWith(networkFirst(event, request, request));
     return;
   }
 
