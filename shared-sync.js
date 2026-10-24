@@ -134,6 +134,8 @@
   function normalizeForWrite(rec){
     var out = {};
     Object.keys(rec || {}).forEach(function(k){ out[k] = rec[k]; });
+    // No date in the record: send none, so the Sheet keeps its stored one.
+    if (!('issueDate' in out) && !('issueTime' in out)) return out;
     var rawDate = String(out.issueDate || '').trim();
     var rawTime = String(out.issueTime || '').trim();
     if (!rawTime && /\d{1,2}:\d{2}/.test(rawDate)) rawTime = rawDate;

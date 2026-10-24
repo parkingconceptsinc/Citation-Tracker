@@ -206,13 +206,16 @@ function listCitations_() {
   const idx = index_(headers);
   if (idx[KEY_HEADER] == null) throw new Error('Missing required header: ' + KEY_HEADER);
   const values = sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getDisplayValues();
+  // The displayed value of a citation number stored as a number is
+  // "4.64518E+16", so the key column is read as values, not as display.
+  const keys = sh.getRange(2, idx[KEY_HEADER] + 1, values.length, 1).getValues();
   // Looked up once, not once per row.
   const tz = Session.getScriptTimeZone() || 'America/Los_Angeles';
-  return values.map(function (row) { return normalizeRow_(row, idx, tz); }).filter(Boolean);
+  return values.map(function (row, i) { return normalizeRow_(row, idx, tz, keys[i][0]); }).filter(Boolean);
 }
 
-function normalizeRow_(row, idx, tz) {
-  const citationNo = unescapeText_(cell_(row, idx, 'Citation Number'));
+function normalizeRow_(row, idx, tz, key) {
+  const citationNo = unescapeText_(keyText_(key));
   if (!citationNo) return null;
   const issued = issueParts_(cell_(row, idx, 'Issue Date & Time'), tz);
   const plateParts = splitPlate_(cell_(row, idx, 'License Plate'));
@@ -252,6 +255,22 @@ function unescapeText_(value) {
   return String(value || '').replace(/^'/, '');
 }
 
+/* Citation numbers have 15 or 17 digits. One stored as a number (Sheets
+   does that when the text fits in 15 significant digits, e.g. a 17-digit
+   number ending in 00) comes back from getValues() as a number; String()
+   gives back all its digits. */
+function keyText_(value) {
+  if (typeof value === 'number') return isFinite(value) ? String(value) : '';
+  return String(value == null ? '' : value).trim();
+}
+
+/* The key column is plain text (@), so Sheets never turns a citation number
+   into a number. Applied to every row the import writes, new rows included. */
+function keepKeyColumnText_(sh, idx, lastRow) {
+  if (lastRow < 2) return;
+  sh.getRange(2, idx[KEY_HEADER] + 1, lastRow - 1, 1).setNumberFormat('@');
+}
+
 /* Upsert by Citation Number.
    - Only the fields present in the record are written, so importing a CSV
      that lacks a column (e.g. Status) never blanks existing values.
@@ -271,7 +290,7 @@ function upsertCitations_(records) {
     const tz = sh.getParent().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
     const positions = {};
     rows.forEach(function (row, i) {
-      const key = unescapeText_(String(row[idx[KEY_HEADER]] == null ? '' : row[idx[KEY_HEADER]]).trim());
+      const key = unescapeText_(keyText_(row[idx[KEY_HEADER]]));
       if (!key) return;
       (positions[key] = positions[key] || []).push(i);
     });
@@ -295,11 +314,11 @@ function upsertCitations_(records) {
       }
       targets.forEach(function (pos) {
         if (pos >= rows.length) {
-          applyRecord_(appended[pos - rows.length], idx, key, rec);
+          applyRecord_(appended[pos - rows.length], idx, key, rec, tz);
           return;
         }
         const before = rows[pos].slice();
-        applyRecord_(rows[pos], idx, key, rec);
+        applyRecord_(rows[pos], idx, key, rec, tz);
         if (rowChanged_(before, rows[pos], tz)) touched[pos] = true;
       });
     });
@@ -323,6 +342,13 @@ function upsertCitations_(records) {
     // first to the last changed row is written in one call (unchanged rows in
     // it are written back with the values just read).
     if (runs.length > MAX_WRITE_RUNS) runs.splice(0, runs.length, [changed[0], changed[changed.length - 1]]);
+    if (changed.length || appended.length) {
+      // New rows are added to the grid first so the text format reaches them
+      // before their values do.
+      const lastRow = rows.length + 1 + appended.length;
+      if (sh.getMaxRows() < lastRow) sh.insertRowsAfter(sh.getMaxRows(), lastRow - sh.getMaxRows());
+      keepKeyColumnText_(sh, idx, lastRow);
+    }
     runs.forEach(function (run) {
       sh.getRange(run[0] + 2, 1, run[1] - run[0] + 1, headers.length).setValues(rows.slice(run[0], run[1] + 1).map(protectRow));
     });
@@ -365,17 +391,39 @@ function has_(rec, field) {
   return Object.prototype.hasOwnProperty.call(rec, field);
 }
 
-function applyRecord_(row, idx, key, rec) {
+function applyRecord_(row, idx, key, rec, tz) {
   set_(row, idx, 'Citation Number', sheetText_(key));
   if (has_(rec, 'violation')) set_(row, idx, 'Violation Type', sheetText_(rec.violation));
   if (has_(rec, 'officer')) set_(row, idx, 'Officer Name', sheetText_(rec.officer));
   if (has_(rec, 'lot')) set_(row, idx, 'Location', sheetText_(rec.lot));
   if (has_(rec, 'plate') || has_(rec, 'state')) set_(row, idx, 'License Plate', sheetText_(joinPlate_(rec.plate, rec.state)));
-  if (has_(rec, 'issueDate') || has_(rec, 'issueTime')) set_(row, idx, 'Issue Date & Time', sheetText_(joinIssued_(rec.issueDate, rec.issueTime)));
+  if (has_(rec, 'issueDate') || has_(rec, 'issueTime')) {
+    // An unreadable date never blanks the stored one, and a date without a
+    // time never drops the stored time of that same day.
+    const issued = joinIssued_(rec.issueDate, rec.issueTime);
+    const stored = idx['Issue Date & Time'] == null ? '' : row[idx['Issue Date & Time']];
+    if (/^\d{4}-\d{2}-\d{2}/.test(issued) && !sameDayWithTime_(stored, issued, tz)) {
+      set_(row, idx, 'Issue Date & Time', sheetText_(issued));
+    }
+  }
   if (has_(rec, 'statusRaw') || has_(rec, 'status')) set_(row, idx, 'Status', sheetText_(rec.statusRaw || rec.status || ''));
   if (numberOrNull_(rec.amountDue) != null) set_(row, idx, 'Original Amount Due', numberOrNull_(rec.amountDue));
   if (numberOrNull_(rec.amountPaid) != null) set_(row, idx, 'Amount Paid', numberOrNull_(rec.amountPaid));
   if (numberOrNull_(rec.balance) != null) set_(row, idx, 'Current Amount Due', numberOrNull_(rec.balance));
+}
+
+/* True when issued is a bare date (yyyy-MM-dd) and the stored value is that
+   same day with a time. */
+function sameDayWithTime_(stored, issued, tz) {
+  if (issued.length !== 10 || stored == null || stored === '') return false;
+  let s;
+  if (Object.prototype.toString.call(stored) === '[object Date]') {
+    if (isNaN(stored.getTime())) return false;
+    s = Utilities.formatDate(stored, tz || Session.getScriptTimeZone() || 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss');
+  } else {
+    s = String(stored).trim();
+  }
+  return s.slice(0, 10) === issued && /\d:\d{2}/.test(s);
 }
 
 function numberOrNull_(value) {

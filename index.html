@@ -534,6 +534,7 @@ var I18N = {
     tSavingPart:"Saving to the shared sheet… {done} of {total}",
     tVerifying:"Checking the shared sheet…",
     tImportBusy:"An import is still being saved",
+    tBadDates:"{n} with an unreadable date (stored date kept)",
     tSavingBtn:"Saving…",
     tImported:"Imported {added} new, updated {updated}",
     tNeedCols:"Pick a column for Citation # and Issue date",
@@ -987,6 +988,7 @@ function commitImport(built){
   mapping = map; LS.set("cit-mapping", mapping);
   var now = Date.now();
   var incoming = [];
+  var badDates = 0;
   pendingImport.rows.forEach(function(raw){
     var g = function(f){ return map[f] ? (raw[map[f]] || "") : ""; };
     var id = String(g("citationNo")).trim();
@@ -1022,6 +1024,12 @@ function commitImport(built){
       if(f === "balance" && map.amountDue) return; // derived from amount due above
       delete rec[f];
     });
+    // A date that can't be read is not sent, so it never blanks the date the
+    // Sheet already has for this citation.
+    if(!rec.issueDate){
+      badDates++;
+      delete rec.issueDate; delete rec.issueTime;
+    }
     incoming.push(rec);
   });
   if(!incoming.length){ toast(t("tNoRows")); return; }
@@ -1042,7 +1050,7 @@ function commitImport(built){
     pendingImport = null;
     return refresh();
   }).then(function(){
-    toast(t("tImported",{added:added, updated:updated}));
+    toast(t("tImported",{added:added, updated:updated}) + (badDates ? " · " + t("tBadDates",{n:badDates}) : ""));
   }).catch(function(e){
     setStatus("");
     toast(String(e && e.message || e));
@@ -1067,7 +1075,8 @@ function dateFloorISO(daysAgo){
 }
 function todayISO(){ var d=new Date(); return iso(d.getFullYear(), d.getMonth()+1, d.getDate()); }
 function inRange(rec){
-  if(!rec.issueDate) return false;
+  // Undated citations still show under "All", so none is ever unreachable.
+  if(!rec.issueDate) return filters.range==="all" && !filters.dateFrom && !filters.dateTo;
   if(filters.dateFrom && rec.issueDate < filters.dateFrom) return false;
   if(filters.dateTo && rec.issueDate > filters.dateTo) return false;
   if(filters.dateFrom || filters.dateTo) return true;
